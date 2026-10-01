@@ -1,0 +1,31 @@
+# ---- 运行产物：审批结果、缩略图缓存、进程号 ----
+data/
+*.pid
+
+# ---- 本地测试用的一次性目录 ----
+_test/
+/tmp/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 内部工作文档（含具体项目信息，不发布）----
+第二轮使用问题汇总_*.md
+开工文档.md
+*.round*.json.bak
+
+# ---- 编辑器/工具本地配置 ----
+.zcodeignore

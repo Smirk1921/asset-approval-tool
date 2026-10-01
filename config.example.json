@@ -1,0 +1,236 @@
+{
+  "_说明": "这是配置模板，复制成 config.json 后按自己的素材改路径即可。以 _ 开头的键是注释，程序会忽略。",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "open_browser": true,
+  "data_dir": "data",
+  "wall_page_size": 60,
+  "auto_advance": true,
+  "thumb": {
+    "max_size": 360,
+    "quality": 82
+  },
+  "tags": [
+    "标题混排",
+    "字体错",
+    "黑底黑字",
+    "图标缺失",
+    "图标误抹",
+    "分段错",
+    "文字溢出",
+    "术语错",
+    "图标错位",
+    "背景残留",
+    "其它"
+  ],
+  "_tag_shortcuts说明": "按顺序对应上面 tags 的前几个标签。按一下 = 打回 + 贴这个标签。",
+  "tag_shortcuts": [
+    "q",
+    "w",
+    "e",
+    "t",
+    "y",
+    "u",
+    "i",
+    "o",
+    "p"
+  ],
+  "shortcuts": {
+    "next": [
+      "ArrowRight",
+      "d"
+    ],
+    "prev": [
+      "ArrowLeft",
+      "a"
+    ],
+    "pass": [
+      "1"
+    ],
+    "reject": [
+      "2"
+    ],
+    "flag": [
+      "3"
+    ],
+    "clear": [
+      "0"
+    ],
+    "wall": [
+      "g"
+    ],
+    "detail": [
+      "v"
+    ],
+    "annotate": [
+      "r"
+    ],
+    "overlay": [
+      "x"
+    ],
+    "fit": [
+      "f"
+    ],
+    "zoom100": [
+      "z"
+    ],
+    "sync": [
+      "s"
+    ],
+    "focusSearch": [
+      "/"
+    ]
+  },
+  "sets": [
+    {
+      "_说明": "① 图片对照 · 按文件名配对。左右两个目录里同名的文件自动配成一对，可以递归扫描子目录。",
+      "id": "my_cards",
+      "name": "单卡对照（原图 ↔ 成品）",
+      "type": "image",
+      "pair": "basename",
+      "items_from": "b",
+      "a": {
+        "root": "D:\\素材\\原图",
+        "label": "原图"
+      },
+      "b": {
+        "root": "D:\\素材\\成品",
+        "label": "成品"
+      },
+      "include": [
+        "*.png",
+        "*.jpg",
+        "*.jpeg",
+        "*.webp"
+      ],
+      "exclude": [
+        "_*",
+        ".*",
+        "~*"
+      ],
+      "recurse": true,
+      "meta": {
+        "_说明": "可选。清单里每条记录按 key_template 生成文件名，用来给同名图片补上卡号/类型等属性。",
+        "path": "D:\\素材\\清单.json",
+        "join": "filename",
+        "key_template": "{id}_front.png",
+        "id_field": "id",
+        "fields": [
+          "卡号",
+          "类型",
+          "扩展"
+        ],
+        "rename": {},
+        "facets": [
+          "类型",
+          "扩展"
+        ]
+      }
+    },
+    {
+      "_说明": "② 图片对照 · 按清单配对。素材集里每条记录对应一张图，文件名由 key_template 生成；源目录不需要两个都能扫到同名文件。",
+      "id": "by_manifest",
+      "name": "按清单逐张审批",
+      "type": "image",
+      "pair": "manifest",
+      "items_from": "b",
+      "a": {
+        "root": "D:\\素材\\原图",
+        "label": "原图"
+      },
+      "b": {
+        "root": "D:\\素材\\成品",
+        "label": "成品"
+      },
+      "include": [
+        "*.png"
+      ],
+      "exclude": [
+        "_*"
+      ],
+      "recurse": true,
+      "meta": {
+        "path": "D:\\素材\\清单.json",
+        "join": "filename",
+        "key_template": "{id}_front.png",
+        "id_field": "id",
+        "name_field": "标题",
+        "fields": [
+          "卡号",
+          "类型"
+        ],
+        "facets": [
+          "类型"
+        ]
+      }
+    },
+    {
+      "_说明": "③ 文本对照 · 按 JSON 顶层键配对。源A 与源B 各自从一个 JSON 里按键取值；两个 JSON 的键要能对上（也可是同一个文件的两个字段）。",
+      "id": "my_texts",
+      "name": "译文对照（原文 ↔ 译文）",
+      "type": "text",
+      "pair": "json_key",
+      "items_from": "b",
+      "id_regex": "\\|(?P<card>\\d+)\\|(?P<row>\\d+)\\|(?P<col>\\d+)$",
+      "id_template": "卡{card}-槽{row}-{col}",
+      "group_field": "分类",
+      "a": {
+        "kind": "json",
+        "path": "D:\\素材\\原文.json",
+        "fields": [
+          "title",
+          "lines[].t"
+        ],
+        "label": "原文"
+      },
+      "b": {
+        "kind": "json",
+        "path": "D:\\素材\\译文.json",
+        "fields": [
+          "zh"
+        ],
+        "label": "译文"
+      },
+      "meta": {
+        "path": "D:\\素材\\译文.json",
+        "join": "key",
+        "fields": [
+          "cat",
+          "status"
+        ],
+        "rename": {
+          "cat": "分类",
+          "status": "校对状态"
+        },
+        "facets": [
+          "分类",
+          "校对状态"
+        ]
+      }
+    },
+    {
+      "_说明": "④ 文本对照 · 两个目录里的同名文本文件配对（.txt/.md/.csv），适合「源文本 vs 处理后文本」。",
+      "id": "text_files",
+      "name": "文本文件对照",
+      "type": "text",
+      "pair": "basename",
+      "items_from": "b",
+      "a": {
+        "root": "D:\\素材\\原文txt",
+        "label": "源文本"
+      },
+      "b": {
+        "root": "D:\\素材\\处理后txt",
+        "label": "处理后"
+      },
+      "include": [
+        "*.txt",
+        "*.md"
+      ],
+      "exclude": [
+        "_*"
+      ],
+      "recurse": true
+    }
+  ]
+}

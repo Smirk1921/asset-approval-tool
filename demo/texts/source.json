@@ -1,0 +1,134 @@
+{
+  "card01|0|0": {
+    "title": "A",
+    "lines": [
+      {
+        "t": "A frozen lake stretches before you.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card01|0|1": {
+    "title": "The",
+    "lines": [
+      {
+        "t": "The ice groans underfoot.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card02|0|0": {
+    "title": "Broken",
+    "lines": [
+      {
+        "t": "Broken pillars rise from the sand.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card02|0|1": {
+    "title": "Whatever",
+    "lines": [
+      {
+        "t": "Whatever stood here was grand once.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card03|0|0": {
+    "title": "A",
+    "lines": [
+      {
+        "t": "A merchant waves you over.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card03|0|1": {
+    "title": "She",
+    "lines": [
+      {
+        "t": "She has wares from every corner of the continent.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card04|0|0": {
+    "title": "Lightning",
+    "lines": [
+      {
+        "t": "Lightning splits the sky.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card04|0|1": {
+    "title": "The",
+    "lines": [
+      {
+        "t": "The wind tears at your cloak.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card05|0|0": {
+    "title": "The",
+    "lines": [
+      {
+        "t": "The sun does not rise.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card05|0|1": {
+    "title": "Lanterns",
+    "lines": [
+      {
+        "t": "Lanterns burn low.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card06|0|0": {
+    "title": "A",
+    "lines": [
+      {
+        "t": "A gate of blue ice bars your way.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  },
+  "card07|0|0": {
+    "title": "The",
+    "lines": [
+      {
+        "t": "The needle spins without rest.",
+        "x": 100,
+        "y": 200,
+        "c": 0.98
+      }
+    ]
+  }
+}

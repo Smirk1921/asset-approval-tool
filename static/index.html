@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图包素材审批工具</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">图包审批 <span>本地素材对照审批</span></div>
+
+    <label class="sr-only" for="setSelect"></label>
+    <select id="setSelect" title="切换素材集"></select>
+
+    <div class="seg" id="viewSeg">
+      <button data-view="detail" class="on" title="单张对照 (V)">单张对照</button>
+      <button data-view="wall" title="缩略图墙 (G)">缩略图墙</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <input type="search" id="searchBox" placeholder="搜索 文件名 / 卡号 / 标题  ( / )" title="搜索定位">
+    <button id="btnFilter" title="按属性筛选">筛选 <span id="filterCount" class="badge-count"></span></button>
+    <button id="btnHelp" class="icon" title="快捷键与说明">?</button>
+    <button id="btnSettings" class="icon" title="配置与重载">⚙</button>
+  </header>
+
+  <div id="staleBar">
+    <span>⚠ 有 <b id="staleCount">0</b> 条素材在你审批之后源文件又被改过（重渲过），这些结果可能已经过期。</span>
+    <button class="sm" id="staleShow">只看这些</button>
+    <button class="sm" id="staleClear">清除它们的结果，重新审</button>
+    <button class="sm" id="staleDismiss" title="这次先不管">忽略</button>
+  </div>
+
+  <div id="statsBar">
+    <div class="stat-item" id="progressWrap">
+      <div class="progress-track" id="progressTrack"></div>
+      <span id="progressText">—</span>
+    </div>
+    <div class="stat-item" id="quickFilters">
+      <button class="sm on" data-status="all">全部</button>
+      <button class="sm" data-status="">未审</button>
+      <button class="sm" data-status="pass">✅ 通过</button>
+      <button class="sm" data-status="reject">❌ 打回</button>
+      <button class="sm" data-status="flag">⚠️ 存疑</button>
+    </div>
+    <div class="stat-item" id="countStats"></div>
+    <div class="spacer" style="flex:1"></div>
+    <div class="stat-item" id="activeFilters"></div>
+  </div>
+
+  <main>
+    <!-- ============================ 单张对照视图 ============================ -->
+    <section id="detailView">
+      <div id="canvasArea">
+        <div id="itemToolbar">
+          <div class="group status-btns" id="statusBtns">
+            <button class="pass"   data-status="pass">✅ 通过<em class="key-hint">1</em></button>
+            <button class="reject" data-status="reject">❌ 打回<em class="key-hint">2</em></button>
+            <button class="flag"   data-status="flag">⚠️ 存疑<em class="key-hint">3</em></button>
+            <button data-status="" title="清除标记 (0)">清除<em class="key-hint">0</em></button>
+          </div>
+
+          <div class="sep"></div>
+
+          <div class="group">
+            <button id="btnPrev" title="上一个 (←)">◀ 上一个</button>
+            <span class="mono" id="posLabel" style="color:var(--text-dim);min-width:76px;text-align:center">— / —</span>
+            <button id="btnNext" title="下一个 (→)">下一个 ▶</button>
+          </div>
+
+          <div class="spacer"></div>
+
+          <div class="group" id="imageCtl">
+            <button id="btnFit" class="sm" title="适应窗口 (F)">适应</button>
+            <button id="btnZoom100" class="sm" title="原始大小 (Z)">1:1</button>
+            <button id="btnZoomOut" class="sm" title="缩小">−</button>
+            <button id="btnZoomIn" class="sm" title="放大">＋</button>
+            <span class="mono" id="zoomLabel" style="color:var(--text-dim);min-width:44px;text-align:right">100%</span>
+            <button id="btnSync" class="sm on" title="左右同步缩放/平移 (S)">同步</button>
+            <button id="btnOverlay" class="sm" title="叠加对比：滑块 + 空格闪烁 (O)">叠加对比</button>
+            <button id="btnAnnotate" class="sm" title="圈图标注：拖拽画框 (R)">✏️ 圈图</button>
+          </div>
+
+          <div class="group" id="textCtl" style="display:none">
+            <button class="sm" id="btnFontDown" title="缩小字号">A−</button>
+            <button class="sm" id="btnFontUp" title="放大字号">A＋</button>
+            <button class="sm" id="btnWrap" title="自动换行开关">换行</button>
+            <button class="sm on" id="btnTextSync" title="上下/左右同步滚动">同步滚动</button>
+            <button class="sm" id="btnLayout" title="切换左右分栏 / 上下分栏">上下分栏</button>
+          </div>
+        </div>
+
+        <div id="tagRow">
+          <span class="label">问题标签</span>
+          <div id="tagChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          <span class="label" style="margin-left:8px">备注</span>
+          <input type="text" id="noteInput" placeholder="补充说明（自动保存）">
+          <label class="label" style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:auto">
+            <input type="checkbox" id="autoAdv"> 标记后自动跳下一张
+          </label>
+        </div>
+
+        <div id="panes">
+          <div class="pane" data-side="a">
+            <div class="pane-head">
+              <span class="role" id="roleA">源A</span>
+              <span class="meta" id="metaA"></span>
+              <span class="spacer"></span>
+            </div>
+            <div class="viewport" id="viewportA">
+              <div class="stage" id="stageA" style="display:none">
+                <img id="imgA" alt="源A" draggable="false">
+                <div class="overlay" id="overlayA"></div>
+              </div>
+              <div class="pane-empty" id="emptyA" style="display:none"></div>
+            </div>
+          </div>
+          <div class="pane" data-side="b">
+            <div class="pane-head">
+              <span class="role" id="roleB">源B</span>
+              <span class="meta" id="metaB"></span>
+              <span class="spacer"></span>
+              <span id="statBadge" class="meta"></span>
+            </div>
+            <div class="viewport" id="viewportB">
+              <div class="stage" id="stageB" style="display:none">
+                <img id="imgB" alt="源B" draggable="false">
+                <div class="overlay" id="overlayB"></div>
+              </div>
+              <div class="pane-empty" id="emptyB" style="display:none"></div>
+            </div>
+          </div>
+
+          <div class="pane" id="overlayPane" style="display:none">
+            <div class="pane-head">
+              <span class="role">叠加对比</span>
+              <span class="meta" id="overlayHint">拖动中间竖线分界；按住空格键临时看全幅原图</span>
+              <span class="spacer"></span>
+              <button class="sm" id="btnBlend" title="成品以半透明盖在原图上">半透明重叠</button>
+              <button class="sm" id="btnOverlayOff">退出叠加</button>
+            </div>
+            <div class="viewport" id="viewportO">
+              <div class="ov-clip" id="ovClip"></div>
+              <div class="ov-label ov-label-l" id="ovLabelL">原图</div>
+              <div class="ov-label ov-label-r" id="ovLabelR">成品</div>
+              <div class="ov-divider" id="ovDivider"><span class="ov-grip">⇔</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-wrap" id="textWrap" style="display:none">
+          <div class="text-pane">
+            <div class="pane-head"><span class="role" id="textRoleA">源A</span><span class="meta" id="textMetaA"></span></div>
+            <div class="text-body" id="textA"></div>
+          </div>
+          <div class="text-pane">
+            <div class="pane-head"><span class="role" id="textRoleB">源B</span><span class="meta" id="textMetaB"></span>
+              <span class="spacer"></span><span id="textStatBadge" class="meta"></span></div>
+            <div class="text-body" id="textB"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside id="sidePanel">
+        <div class="side-section">
+          <h3>素材信息</h3>
+          <dl class="kv" id="itemMeta"></dl>
+        </div>
+
+        <div class="side-section">
+          <h3>圈选问题 <span id="annotCount" style="color:var(--text-faint);font-weight:400"></span></h3>
+          <ul class="annot-list" id="annotList"></ul>
+          <div class="hint" id="annotHint" style="margin-top:8px"></div>
+        </div>
+
+        <div class="side-section">
+          <h3>批量操作（作用于当前筛选结果）</h3>
+          <div id="batchSummary" class="hint" style="margin-bottom:6px"></div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <button class="sm" id="batchPass">全部通过</button>
+            <button class="sm" id="batchFlag">全部存疑</button>
+            <button class="sm" id="batchReject">全部打回…</button>
+          </div>
+          <div id="batchTagWrap" style="margin-top:7px;display:none">
+            <div class="hint" style="margin-bottom:4px">打回时统一附加标签：</div>
+            <div id="batchTags" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+          </div>
+        </div>
+
+        <div class="side-section">
+          <h3>导出</h3>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <button class="sm" data-export="json" data-only="all">JSON（全部）</button>
+            <button class="sm" data-export="csv" data-only="all">CSV（全部）</button>
+            <button class="sm" data-export="json" data-only="problem">JSON（仅问题项）</button>
+            <button class="sm" data-export="csv" data-only="problem">CSV（仅问题项）</button>
+            <button class="sm" data-export="csv" data-only="problem" data-part="annotations">CSV（圈注明细）</button>
+          </div>
+          <div class="hint" style="margin-top:6px">「圈注明细」每处圈选一行，坐标同时给百分比和像素，方便下游直接定位修复。</div>
+          <div class="hint" style="margin-top:6px" id="resultPathHint"></div>
+        </div>
+
+        <div class="side-section">
+          <h3>轮次</h3>
+          <div class="hint" id="roundHint" style="margin-bottom:6px"></div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <button class="sm" id="btnPrevRound">筛出上轮打回的</button>
+            <button class="sm" id="btnNewRound">归档本轮，开始新一轮…</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ============================ 缩略图墙 ============================ -->
+    <section id="wallView">
+      <div id="wallToolbar">
+        <span id="wallInfo" style="color:var(--text-dim)"></span>
+        <div class="sep" style="width:1px;height:20px;background:var(--line-2)"></div>
+        <button class="sm" id="wallShowB" data-wallside="b">显示：源B成品</button>
+        <button class="sm" id="wallShowA" data-wallside="a">显示：源A原图</button>
+        <button class="sm" id="wallSelectMode" title="进入多选后可对选中项批量标记">多选</button>
+        <button class="sm" id="wallSelectAll">选中本页</button>
+        <button class="sm" id="wallSelectNone">清空选择</button>
+        <div class="sep" style="width:1px;height:20px;background:var(--line-2)"></div>
+        <span class="pageinfo">批量：</span>
+        <button class="sm" id="wallBatchPass">全部通过</button>
+        <button class="sm" id="wallBatchFlag">全部存疑</button>
+        <button class="sm" id="wallBatchReject">全部打回…</button>
+        <button class="sm" id="wallClearCurrent" title="把目标素材标记为未审">标记为未审</button>
+        <div class="sep" style="width:1px;height:20px;background:--line-2"></div>
+        <button class="sm on" id="wallDim" title="已审的缩略图半透明显示，未审的更显眼">淡显已审</button>
+        <button class="sm" id="wallSizeDown" title="缩小格子">小</button>
+        <button class="sm" id="wallSizeUp" title="放大格子">大</button>
+        <div class="spacer"></div>
+        <span id="wallSelInfo" style="color:var(--accent)"></span>
+      </div>
+      <div id="wallGrid"></div>
+      <div id="wallPager">
+        <button class="sm" id="pageFirst">« 首页</button>
+        <button class="sm" id="pagePrev">‹ 上一页</button>
+        <span class="pageinfo" id="pageInfo">—</span>
+        <button class="sm" id="pageNext">下一页 ›</button>
+        <button class="sm" id="pageLast">末页 »</button>
+        <span class="pageinfo">跳到</span>
+        <input type="text" id="pageJump" style="width:56px;text-align:center" title="输入页码后回车">
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast"><span class="msg"></span><button class="sm" id="toastAction" style="display:none"></button></div>
+
+<!-- 筛选面板 -->
+<div class="modal-mask" id="filterModal">
+  <div class="modal">
+    <h2>筛选</h2>
+    <div class="row"><label>审批状态</label><div class="seg" id="fStatus">
+      <button data-status="all" class="on">全部</button>
+      <button data-status="">未审</button>
+      <button data-status="pass">通过</button>
+      <button data-status="reject">打回</button>
+      <button data-status="flag">存疑</button>
+    </div></div>
+    <div class="row"><label>按属性（来自素材元数据）</label><div id="fFacets"></div></div>
+    <div class="row"><label>问题标签</label><div id="fTags" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>
+    <div class="row"><label>特殊条件</label><div id="fSpecial" style="display:flex;gap:6px;flex-wrap:wrap">
+      <span class="tag" data-special="noTags">未打任何标签</span>
+      <span class="tag" data-special="hasAnnot">有圈选</span>
+      <span class="tag" data-special="hasNote">有备注</span>
+      <span class="tag" data-special="stale">源文件已变（结果过期）</span>
+      <span class="tag" data-special="noTagsReject" title="打回但没有标任何问题标签">打回且无标签</span>
+    </div></div>
+    <div class="row"><label>文件名 / 素材 id 关键词</label>
+      <input type="text" id="fSearch" style="width:100%" placeholder="例如 4201 或 _front"></div>
+    <div class="actions">
+      <button id="fReset">重置</button>
+      <button class="primary" id="fApply">应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助 -->
+<div class="modal-mask" id="helpModal">
+  <div class="modal">
+    <h2>快捷键与用法</h2>
+    <div id="helpBody"></div>
+    <div class="actions"><button class="primary" id="helpClose">知道了</button></div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="modal-mask" id="settingsModal">
+  <div class="modal">
+    <h2>配置</h2>
+    <div class="row"><label>配置文件</label><div class="mono" id="cfgPath" style="font-size:12px;word-break:break-all"></div></div>
+    <div class="row"><label>结果目录</label><div class="mono" id="cfgData" style="font-size:12px;word-break:break-all"></div></div>
+    <div class="hint">素材目录、标签、快捷键都在配置文件里改；改完点「重新扫描配置」即可生效，不用重启。</div>
+    <div class="actions">
+      <button id="btnClearThumbs">清空缩略图缓存</button>
+      <button id="btnReload">重新扫描配置</button>
+      <button class="primary" id="settingsClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量确认 -->
+<div class="modal-mask" id="batchModal">
+  <div class="modal">
+    <h2 id="batchTitle">批量操作</h2>
+    <div class="row" id="batchBody"></div>
+    <div class="actions">
+      <button id="batchCancel">取消</button>
+      <button class="primary" id="batchConfirm">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading" style="display:none">加载中…</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

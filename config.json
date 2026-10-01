@@ -1,0 +1,91 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "open_browser": true,
+  "data_dir": "data",
+  "wall_page_size": 60,
+  "auto_advance": true,
+
+  "thumb": { "max_size": 360, "quality": 82 },
+
+  "_tags说明": "预设的问题标签。tag_shortcuts 按顺序对应前几个，按一下 = 打回 + 贴这个标签。",
+  "tags": [
+    "标题混排", "字体错", "黑底黑字", "图标缺失", "图标误抹",
+    "分段错", "文字溢出", "术语错", "图标错位", "背景残留", "其它"
+  ],
+  "tag_shortcuts": ["q", "w", "e", "t", "y", "u", "i", "o", "p"],
+
+  "shortcuts": {
+    "next": ["ArrowRight", "d"],
+    "prev": ["ArrowLeft", "a"],
+    "pass": ["1"],
+    "reject": ["2"],
+    "flag": ["3"],
+    "clear": ["0"],
+    "wall": ["g"],
+    "detail": ["v"],
+    "annotate": ["r"],
+    "overlay": ["x"],
+    "fit": ["f"],
+    "zoom100": ["z"],
+    "sync": ["s"],
+    "focusSearch": ["/"]
+  },
+
+  "_说明": "这里配的是仓库自带的 demo 素材（demo/ 目录，由 demo/generate_demo.py 生成），克隆下来就能直接跑。换成自己的素材请改下面的路径，或参考 config.example.json。",
+
+  "sets": [
+    {
+      "id": "demo_cards",
+      "name": "演示·单卡对照（英文原图 ↔ 中文成品）",
+      "type": "image",
+      "pair": "basename",
+      "items_from": "b",
+      "note": "8 张合成卡片，其中 5 张的成品故意做了缺陷：文字溢出 / 图标缺失 / 标题混排 / 文字重叠 / 黑底黑字。可以拿它熟悉标记、圈图和批量操作。",
+      "a": { "root": "demo/original", "label": "英文原图" },
+      "b": { "root": "demo/rendered", "label": "中文成品" },
+      "include": ["*_front.png"],
+      "exclude": ["_*", ".*", "~*"],
+      "recurse": true,
+      "meta": {
+        "path": "demo/manifest.json",
+        "join": "filename",
+        "key_template": "{card_id}_front.png",
+        "id_field": "card_id",
+        "fields": ["卡号", "类型", "扩展", "状态", "英文标题"],
+        "facets": ["类型", "扩展"]
+      }
+    },
+
+    {
+      "id": "demo_texts",
+      "name": "演示·译文对照（英文 OCR ↔ 中文译文）",
+      "type": "text",
+      "pair": "json_key",
+      "items_from": "b",
+      "note": "12 个文本槽位，源A 是英文原文，源B 是中文译文。演示文本素材的对照审批。",
+      "id_regex": "^(?P<card>[^|]+)\\|(?P<row>\\d+)\\|(?P<col>\\d+)$",
+      "id_template": "{card}-槽{row}-{col}",
+      "group_field": "分类",
+      "a": {
+        "kind": "json",
+        "path": "demo/texts/source.json",
+        "fields": ["title", "lines[].t"],
+        "label": "英文原文"
+      },
+      "b": {
+        "kind": "json",
+        "path": "demo/texts/translated.json",
+        "fields": ["zh"],
+        "label": "中文译文"
+      },
+      "meta": {
+        "path": "demo/texts/translated.json",
+        "join": "key",
+        "fields": ["cat", "status", "source"],
+        "rename": { "cat": "分类", "status": "校对状态", "source": "来源" },
+        "facets": ["分类", "校对状态"]
+      }
+    }
+  ]
+}
