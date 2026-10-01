@@ -12,8 +12,10 @@
   <header>
     <div class="brand">图包审批 <span>本地素材对照审批</span></div>
 
-    <label class="sr-only" for="setSelect"></label>
-    <select id="setSelect" title="切换素材集"></select>
+    <label class="set-picker" title="切换素材集">
+      <span>素材集</span>
+      <select id="setSelect"></select>
+    </label>
 
     <div class="seg" id="viewSeg">
       <button data-view="detail" class="on" title="单张对照 (V)">单张对照</button>
@@ -33,6 +35,12 @@
     <button class="sm" id="staleShow">只看这些</button>
     <button class="sm" id="staleClear">清除它们的结果，重新审</button>
     <button class="sm" id="staleDismiss" title="这次先不管">忽略</button>
+  </div>
+
+  <div id="configBar">
+    <span>配置已更新（<b id="configWhat">—</b>），刷新页面就能看到新内容。</span>
+    <button class="sm primary" id="configReload">立即刷新</button>
+    <button class="sm" id="configLater">稍后</button>
   </div>
 
   <div id="statsBar">
@@ -199,6 +207,8 @@
             <button class="sm" data-export="json" data-only="problem">JSON（仅问题项）</button>
             <button class="sm" data-export="csv" data-only="problem">CSV（仅问题项）</button>
             <button class="sm" data-export="csv" data-only="problem" data-part="annotations">CSV（圈注明细）</button>
+            <button class="sm" data-export="advice" data-only="problem">修正建议（JSON）</button>
+            <button class="sm" id="btnExportCrops" title="把圈注区域裁成小图，打包下载">导出圈选裁剪（ZIP）</button>
           </div>
           <div class="hint" style="margin-top:6px">「圈注明细」每处圈选一行，坐标同时给百分比和像素，方便下游直接定位修复。</div>
           <div class="hint" style="margin-top:6px" id="resultPathHint"></div>
@@ -210,6 +220,7 @@
           <div style="display:flex;gap:5px;flex-wrap:wrap">
             <button class="sm" id="btnPrevRound">筛出上轮打回的</button>
             <button class="sm" id="btnNewRound">归档本轮，开始新一轮…</button>
+            <button class="sm" id="btnDerive" title="从当前集合派生出独立的新集合，不用手改配置">派生新集合…</button>
           </div>
         </div>
       </aside>
@@ -315,6 +326,29 @@
     <div class="actions">
       <button id="batchCancel">取消</button>
       <button class="primary" id="batchConfirm">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="deriveModal">
+  <div class="modal">
+    <h2>派生新集合</h2>
+    <div class="row"><label>新集合 id（英文/数字，唯一）</label>
+      <input type="text" id="deriveId" style="width:100%" placeholder="例如 v2_validation"></div>
+    <div class="row"><label>显示名</label>
+      <input type="text" id="deriveName" style="width:100%" placeholder="例如 v2 验证"></div>
+    <div class="row"><label>新的成品目录（可选）</label>
+      <input type="text" id="deriveBRoot" style="width:100%" placeholder="重渲后的目录；留空＝沿用当前目录"></div>
+    <div class="row"><label>包含哪些素材</label>
+      <div><label><input type="radio" name="deriveScope" value="filtered" checked>
+        只含当前筛选出的 <b id="deriveCount">0</b> 张</label></div>
+      <div><label><input type="radio" name="deriveScope" value="all">全部素材</label></div>
+    </div>
+    <div class="hint">新集合会写到 sets.d/ 下，<b>不会改动你手写的 config.json</b>；
+      写完立刻可用，要删掉它删那个文件就行。</div>
+    <div class="actions">
+      <button id="deriveCancel">取消</button>
+      <button class="primary" id="deriveConfirm">创建</button>
     </div>
   </div>
 </div>

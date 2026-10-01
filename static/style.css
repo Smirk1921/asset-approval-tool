@@ -76,6 +76,40 @@ textarea { resize: vertical; font-family: inherit; }
 ::-webkit-scrollbar-thumb { background: #333a45; border-radius: 6px; border: 2px solid #101216; }
 ::-webkit-scrollbar-thumb:hover { background: #465061; }
 
+/* ---------------------------------------------- 集合切换器 */
+
+.set-picker {
+  display: flex; align-items: center; gap: 6px;
+  background: #12141a; border: 1px solid var(--line-2);
+  border-radius: var(--radius); padding: 2px 8px 2px 10px;
+}
+.set-picker > span { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.set-picker select {
+  border: none; background: transparent; padding: 4px 2px;
+  max-width: 300px; font-size: 13px;
+}
+.set-picker select:focus { outline: none; }
+
+/* ---------------------------------------------- 配置更新提示条 */
+
+#configBar {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: #bcd4ff;
+  background: linear-gradient(90deg, rgba(76,141,255,.20), rgba(76,141,255,.06));
+  border-bottom: 1px solid rgba(76,141,255,.45);
+}
+#configBar.show { display: flex; }
+#configBar b { color: #fff; }
+
+/* 需复审快捷筛选 */
+.review-chip { border-color: var(--flag) !important; color: var(--flag); }
+.review-chip b { color: var(--flag); }
+
 /* ---------------------------------------------- 过期结果提示条 */
 
 #staleBar {

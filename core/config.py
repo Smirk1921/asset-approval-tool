@@ -122,9 +122,48 @@ def load_config(path: str | os.PathLike) -> dict:
     cfg["tag_shortcuts"] = [str(k) for k in tag_keys] if isinstance(tag_keys, list) \
         else list(DEFAULT_TAG_SHORTCUTS)
 
-    sets_raw = raw.get("sets")
-    if not isinstance(sets_raw, list) or not sets_raw:
-        raise ConfigError("配置里至少需要一个素材集（sets 数组）")
+    # 审批模板：常用标签组合，`review --template <id>` / `--tags` 都认
+    templates = []
+    for index, item in enumerate(raw.get("templates") or []):
+        if not isinstance(item, dict) or not item.get("tags"):
+            raise ConfigError(f"templates[{index}] 必须是对象且带 tags 数组")
+        tags = item["tags"]
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        templates.append({
+            "id": str(item.get("id") or f"template{index + 1}"),
+            "name": str(item.get("name") or item.get("id") or f"模板{index + 1}"),
+            "tags": [str(t) for t in tags],
+        })
+    cfg["templates"] = templates
+
+    # 标签 -> 修正建议话术。工具只负责「按标签把话术贴出来」，
+    # 具体说什么由使用方在自己的配置里定义（仓库里不含任何项目专属内容）。
+    advice = raw.get("tag_advice")
+    if advice is not None and not isinstance(advice, dict):
+        raise ConfigError("tag_advice 必须是对象：{标签: 建议话术}")
+    cfg["tag_advice"] = {str(k): str(v) for k, v in (advice or {}).items()}
+
+    # 源文件变了是否自动把过期结果清成未审（默认关：静默清掉已有结论风险大，
+    # 工具默认只在界面上提示，由人来决定）
+    cfg["auto_reset_stale"] = bool(raw.get("auto_reset_stale", False))
+
+    # 素材集：手写在 config.json 里的 sets + sets.d/*.json（工具派生的集合放这里，
+    # 这样写配置不会动到手写的那份，删掉文件就等于删掉集合）
+    sets_raw = list(raw.get("sets") or [])
+    for extra_path in _sets_d_files(base):
+        try:
+            extra = json.loads(extra_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"{extra_path.name} JSON 解析失败：{exc}") from exc
+        batch = extra if isinstance(extra, list) else [extra]
+        for item in batch:
+            if isinstance(item, dict):
+                item = dict(item)
+                item["_from_file"] = str(extra_path)
+                sets_raw.append(item)
+    if not sets_raw:
+        raise ConfigError("配置里至少需要一个素材集（config.json 的 sets，或 sets.d/ 下的 json）")
 
     seen_ids: set[str] = set()
     sets: list[dict] = []
@@ -132,6 +171,18 @@ def load_config(path: str | os.PathLike) -> dict:
         sets.append(_normalize_set(item, index, base, seen_ids))
     cfg["sets"] = sets
     return cfg
+
+
+def sets_dir_for(config_path: str | os.PathLike) -> Path:
+    """派生集合的存放目录（和配置文件同级）。"""
+    return Path(config_path).resolve().parent / "sets.d"
+
+
+def _sets_d_files(base: Path) -> list[Path]:
+    directory = base / "sets.d"
+    if not directory.is_dir():
+        return []
+    return sorted(p for p in directory.glob("*.json") if p.is_file())
 
 
 def _normalize_set(item: dict, index: int, base: Path, seen_ids: set[str]) -> dict:
@@ -199,6 +250,11 @@ def _normalize_set(item: dict, index: int, base: Path, seen_ids: set[str]) -> di
         "meta": meta,
         "note": item.get("note") or "",
         "default_tag": item.get("default_tag") or "",
+        # 只审这些素材 id（白名单）。用来做「只看这批」的隔离集合，
+        # 不必为了筛出一个子集而把文件拷到新目录里。
+        "only_ids": [str(i) for i in item.get("only_ids") or []],
+        # 这个集合是从哪个文件读来的（派生出来的集合会记下 sets.d/xxx.json）
+        "from_file": item.get("_from_file") or "",
     }
 
 

@@ -14,6 +14,7 @@
 - 上千张素材不卡（缩略图懒加载 + 磁盘缓存 + 指纹失效）
 - 结果实时落盘，关掉浏览器不丢，支持断点续审
 - 三种驱动方式：**网页界面** / **命令行** / **MCP**（给 AI agent）
+- 素材重渲后自动识别哪些结论已过期；不同渲染批次可以派生成互相隔离的集合
 
 ![单张对照](docs/screenshot-detail.png)
 
@@ -98,6 +99,15 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 对**当前筛选结果**一键标记，**按钮上直接写着会作用到多少条**，执行前弹确认框，
 执行后提示条里有 **撤销**。在缩略图墙点 **多选** 可以只作用于勾选的那些。
 
+### 集合与批次
+
+- 顶栏 **素材集** 下拉随时切换；当前集合会写进网址（`?set=xxx`），刷新和分享链接都停在同一个集合。
+- **派生新集合…**：从当前集合派生出独立的新集合——可以换成品目录（重渲后的新目录），
+  也可以只包含当前筛选出的那几张。**不用把文件拷来拷去，也不用改配置文件**。
+- **归档本轮，开始新一轮…**：同一批素材重审时，把当前结果存档、批次清空、轮次 +1；
+  下一轮点 **筛出上轮打回的** 优先复审。
+- 改了 `config.json` 后不用自己想起刷新：页面会提示「配置已更新」，点一下就重载。
+
 ### 源文件被重渲了怎么办
 
 审批结果会记下**审批那一刻源文件的指纹**。重渲完素材后**只要刷新浏览器（F5）**，
@@ -108,6 +118,12 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 ```
 
 然后你可以：**只看这些** / **清除它们的结果，重新审** / **忽略**。
+在单张对照视图里，这样的素材右侧会直接标出「⚠ 审批后已被改过，此结论可能过期」，
+并给一个 **清除结论，重新审** 按钮，不用翻回列表去找。
+统计条上也会多出一个 **⚠ 需复审 N** 的快捷筛选。
+
+> 想让它全自动（源一变就把结论清成未审）可以在配置里设 `"auto_reset_stale": true`。
+> 默认是关的：静默清掉已经下过的结论风险太大，工具默认只提示、由你决定。
 没被改过的素材结果照旧保留，不会被误清。图片 URL 里也带了同一个指纹，
 所以浏览器必定拉新图，不用 Ctrl+Shift+R。文本素材集同理：改了译文 JSON，刷新就能看到。
 
@@ -124,6 +140,10 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 - **JSON**：完整结构，含圈选坐标、标签、备注、审批时间，给程序读。
 - **CSV**：表格，带 BOM，Excel 双击直接打开不乱码。
 - **CSV（圈注明细）**：**每处圈选单独一行**，坐标同时给百分比和像素，下游可直接定位修复。
+- **修正建议（JSON）**：把打回原因按标签展开成"下一步该怎么改"的清单，话术由你在配置的
+  `tag_advice` 里定义，工具只负责贴出来。
+- **导出圈选裁剪（ZIP）**：把每处圈注的矩形从原图上裁出来打包——圈出"这里缺个图标"，
+  导出的就是现成的抠图素材。
 
 字段含义见 [`docs/审批结果字段说明.md`](docs/审批结果字段说明.md)。
 
@@ -166,13 +186,14 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 }
 ```
 
-提供 10 个工具：`approval_status`、`list_items`、`get_item`、`get_item_images`、
+提供 14 个工具：`approval_status`、`list_items`、`get_item`、`get_item_images`、
 `review_item`、`batch_review`、`export_results`、`clear_stale_results`、`start_new_round`、
-`list_previous_round_rejects`。
+`list_previous_round_rejects`、`export_crops`、`lookup_item`、`compare_sets`、`derive_set`。
 
-其中 **`get_item_images` 会把图片本身返回给 agent**（MCP image content 块），
-`side="both"` 一次给原图和成品两张，视觉模型可以直接对照找问题，再用 `review_item`
-把结论写回工具——包括在图上圈出问题区域（坐标用 0~1 的比例）。
+其中 **`get_item_images` 会把图片本身返回给 agent**（MCP image content 块）。
+**`stitch=true` 时它把原图和成品拼成一张对照图**（左原图、右成品，已按同一尺寸对齐）——
+模型一次只能吃一张图时这是唯一靠谱的做法，能一次吃多张的模型也建议用它：
+靠文字描述去对齐两张图，图标位置、分段间距、字体差异都会丢。
 
 **命令行**同样可用，每次调用输出一个 JSON：
 
@@ -183,14 +204,24 @@ python agent.py item  --set demo_cards --id 102_front.png
 python agent.py review --set demo_cards --id 102_front.png --status 打回 \
     --tags 文字溢出 --note "正文超出文本框" \
     --annotate "0.09,0.55,0.82,0.28,b,正文溢出到框外"
+python agent.py image-pair --set demo_cards --id 102_front.png --out pair.png
+python agent.py review-batch --set demo_cards --file reviews.json --dry-run
 python agent.py batch --set demo_cards --filter-status unreviewed --status pass --dry-run
 python agent.py export --set demo_cards --format annotations --only problem --out 问题清单.csv
+python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
 ```
+
+几条为 agent 工作流准备的命令：`image-pair`（拼对照图，可批量）、`review-batch`
+（一次写回多条，全部校验通过才写）、`derive-set`（派生隔离集合）、`export-crops`、
+`lookup` / `compare`（跨集合查同一张卡的历史结论）。
 
 几条为 agent 专门做的设计：
 
 - **自动选路**：服务在跑就走 HTTP（和网页版共用同一份状态），没跑就直接读写文件。
-  避免「agent 改了文件、被服务下一次保存覆盖」。服务跑在非默认端口时会给出提示。
+  避免「agent 改了文件、被服务下一次保存覆盖」。服务跑在非默认端口时会给出提示；
+  真要用 `--offline` 直连写而被拦下来，说明服务正在跑，加 `--force` 才能强行覆盖。
+- **标签纠错**：写成"图标丢失"这种同义词会被拦下并提示"是不是要写『图标缺失』"，
+  避免标签写花了之后筛不出来。
 - **批量必须给范围**：`batch` 不给 `ids` 也不给筛选条件会直接报错，
   想作用于全部要显式写 `filter_status="all"`。防的是「一句都通过刷掉整个素材集」。
 - **`dry_run` 预演**：先看会命中哪些，再决定执行。
@@ -215,6 +246,9 @@ python agent.py export --set demo_cards --format annotations --only problem --ou
 | `data_dir` | 放审批结果和缩略图缓存的目录 |
 | `tags` | 问题标签预设列表 |
 | `tag_shortcuts` | 标签快捷键，按顺序对应 `tags` 的前几个 |
+| `templates` | 常用标签组合，例如 `[{"id":"text_layout","name":"文字排版","tags":["文字溢出","分段错"]}]`；`review --template text_layout` 直接用 |
+| `tag_advice` | 标签 → 修正建议话术，`export --format advice` 时展开成清单。**具体说什么由使用方定义，工具不含任何项目专属内容** |
+| `auto_reset_stale` | `true` 时启动就把「源文件已变」的结果清成未审（默认 `false`，只提示不自动清） |
 | `shortcuts` | 快捷键，值是按键数组，如 `"pass": ["1", "y"]` |
 | `wall_page_size` | 缩略图墙每页几张，默认 60 |
 | `auto_advance` | 是否默认勾选「标记后自动跳下一张」 |
@@ -235,6 +269,10 @@ python agent.py export --set demo_cards --format annotations --only problem --ou
 | `id_regex` / `id_template` | 文本素材集里把 JSON 的长键变成好读的 id，如 `卡{card}-槽{row}-{col}` |
 | `group_field` | 用元数据里的哪个字段当「分组」 |
 | `meta` | 可选。清单文件，给素材补属性 |
+| `only_ids` | 可选。素材白名单，只审这些 id（用来从大集合里"只看这批"，不必拷贝文件） |
+
+> 派生出来的集合放在 `sets.d/*.json`，工具只写这个目录，**不会动你手写的 `config.json`**。
+> 删掉文件就等于删掉集合。
 
 ### 三种配对方式（`pair`）
 
@@ -303,16 +341,21 @@ python agent.py export --set demo_cards --format annotations --only problem --ou
 ├── config.json               当前配置（指向自带的 demo 素材）
 ├── config.example.json       配置模板，含四种素材集写法示例
 ├── core/
-│   ├── config.py             配置读取与校验
+│   ├── config.py             配置读取与校验（含 sets.d 合并）
 │   ├── materials.py          素材扫描与配对、源文件指纹
 │   ├── results.py            审批结果读写 / 导出 / 轮次归档
 │   ├── thumbs.py             缩略图生成与缓存
+│   ├── images.py             对照图拼接、圈注裁剪
+│   ├── agent_common.py       状态/标签/圈选规范化（两条通路共用）
+│   ├── agent_ext.py          扩展能力：拼接/裁剪/批量写回/派生集合/跨集合查询
 │   └── agent_api.py          操作层：HTTP 与直连两套实现
 ├── static/                   前端（原生 JS，无外部依赖）
 ├── demo/                     合成演示素材（可重新生成）
 │   └── generate_demo.py
+├── sets.d/                   派生集合（工具自动生成，可 gitignore）
 ├── docs/
 │   ├── agent-接口.md         命令行 / MCP / HTTP 接口参考
+│   ├── agent-工作流示例.md    几个可以直接照抄的完整流程
 │   ├── 审批结果字段说明.md     结果 JSON/CSV 字段说明
 │   └── screenshot-*.png
 ├── AGENTS.md                 给 AI agent 的操作须知

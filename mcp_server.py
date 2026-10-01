@@ -103,6 +103,13 @@ TOOLS = [
                 "side": {"type": "string", "enum": ["a", "b", "both"],
                          "description": "a=源A原图，b=源B成品，both=两张都给（默认）"},
                 "max_size": {"type": "integer", "description": "长边像素上限，默认 900，越大越清晰也越费 token"},
+                "stitch": {"type": "boolean",
+                           "description": "true 时把原图和成品拼成一张对照图返回（左原图右成品）。"
+                                          "模型一次只能吃一张图、或想做严格左右对比时用这个"},
+                "stitch_layout": {"type": "string", "enum": ["horizontal", "vertical"],
+                                  "description": "拼接方向，默认 horizontal（左右）"},
+                "draw_annotations": {"type": "boolean",
+                                     "description": "拼接时把已有圈注框画上去，默认 true"},
             },
             "required": ["set", "id"],
             "additionalProperties": False,
@@ -120,6 +127,8 @@ TOOLS = [
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "问题标签，例如 [\"文字溢出\",\"术语错\"]"},
                 "note": {"type": "string", "description": "备注说明"},
+                "template": {"type": "string",
+                             "description": "用预设的标签组合（approval_status 里能看到有哪些）"},
                 "annotations": {
                     "type": "array",
                     "description": "圈出的问题区域，每处一条",
@@ -163,8 +172,27 @@ TOOLS = [
                 "annotated": {"type": "boolean", "description": "范围：有圈选的"},
                 "noted": {"type": "boolean", "description": "范围：有备注的"},
                 "dry_run": {"type": "boolean", "description": "true 时只返回会命中哪些，不改动"},
+                "reviews": {
+                    "type": "array",
+                    "description": "逐条写回模式：一次提交多条审批结果，每项 "
+                                   "{id,status,tags,note,annotations}。给了它就不必再给 status。"
+                                   "全部校验通过才写，有一条不合法就整批不写（省得写了一半）",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "status": {"type": "string", "description": "pass/reject/flag/空串"},
+                            "tags": {"type": "array", "items": {"type": "string"}},
+                            "note": {"type": "string"},
+                            "annotations": {"type": "array", "items": {"type": "object"}},
+                        },
+                        "required": ["id"],
+                    },
+                },
+                "partial_ok": {"type": "boolean",
+                               "description": "逐条模式下一部分不合法时：true 只写合法的，false 整批不写（默认）"},
             },
-            "required": ["set", "status"],
+            "required": ["set"],
             "additionalProperties": False,
         },
     },
@@ -208,6 +236,69 @@ TOOLS = [
         },
     },
     {
+        "name": "export_crops",
+        "description": "把圈注框裁成小图导出。圈出「这里缺个图标」之后，导出的就是现成的抠图素材；也可以只发给子代理看问题区域。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "set": {"type": "string", "description": _SET_DESC},
+                "out_dir": {"type": "string", "description": "输出目录（out_dir 或 zip_path 至少给一个）"},
+                "zip_path": {"type": "string", "description": "打包成 zip；只给 zip 时不保留散图"},
+                "only": {"type": "string", "enum": ["all", "reviewed", "problem"], "description": "默认 problem"},
+                "side": {"type": "string", "enum": ["a", "b"], "description": "强制只裁这一侧"},
+                "padding": {"type": "integer", "description": "向外多留几像素，默认 8"},
+                "scale": {"type": "number", "description": "放大倍数，例如 2"},
+            },
+            "required": ["set"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lookup_item",
+        "description": "同一个素材 id 在各个素材集里的审批结论。迭代渲染时用来回答「这张卡上一轮是什么结论、是不是我打回的那张」。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "素材 id，例如 102_front.png"},
+                "sets": {"type": "array", "items": {"type": "string"}, "description": "只看这几个素材集"},
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "compare_sets",
+        "description": "两个素材集按素材 id 对比结论：「上一轮打回的那些，这一轮修好了没」。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "set": {"type": "string", "description": "基准素材集 id"},
+                "other": {"type": "string", "description": "要对比的素材集 id"},
+            },
+            "required": ["set", "other"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "derive_set",
+        "description": "从现有素材集派生一个新集合，用来隔离一批素材（比如重渲后只想审这批）。写到 sets.d/ 下，不动用户手写的 config.json，写完立刻可用。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "from_set": {"type": "string", "description": "源素材集 id"},
+                "new_id": {"type": "string", "description": "新集合 id（唯一）"},
+                "name": {"type": "string", "description": "新集合显示名"},
+                "b_root": {"type": "string", "description": "新的成品目录"},
+                "a_root": {"type": "string", "description": "新的原图目录"},
+                "only_ids": {"type": "array", "items": {"type": "string"}, "description": "只含这些素材 id"},
+                "only_from": {"type": "string", "description": "按状态挑：unreviewed/reject/flag/pass/all"},
+                "dry_run": {"type": "boolean", "description": "true 时只返回将要写入的配置"},
+            },
+            "required": ["from_set", "new_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "list_previous_round_rejects",
         "description": "上一轮被打回的素材 id 列表，用来「优先复审上轮打回的」。",
         "inputSchema": {
@@ -228,7 +319,12 @@ class Server:
     def call(self, name: str, args: dict):
         """返回 MCP 的 content 数组。"""
         if name == "approval_status":
-            return text_result(self.backend.status())
+            payload = self.backend.status()
+            try:                      # 顺带把可用模板带上，省一次工具调用
+                payload["templates"] = self.backend.templates().get("templates", [])
+            except Exception:
+                payload["templates"] = []
+            return text_result(payload)
 
         if name == "list_items":
             result = self.backend.items(
@@ -250,10 +346,16 @@ class Server:
             result = self.backend.review(
                 args["set"], args["id"],
                 status=args.get("status"), tags=args.get("tags"),
-                note=args.get("note"), annotations=args.get("annotations"))
+                note=args.get("note"), annotations=args.get("annotations"),
+                template=args.get("template"))
             return text_result(result)
 
         if name == "batch_review":
+            if args.get("reviews"):
+                return text_result(self.backend.review_batch(
+                    args["set"], args["reviews"],
+                    dry_run=bool(args.get("dry_run")),
+                    partial_ok=bool(args.get("partial_ok"))))
             result = self.backend.batch(
                 args["set"], ids=args.get("ids"), status=args.get("status"),
                 tags=args.get("tags"), dry_run=bool(args.get("dry_run")),
@@ -276,6 +378,25 @@ class Server:
         if name == "start_new_round":
             return text_result(self.backend.new_round(args["set"]))
 
+        if name == "export_crops":
+            return text_result(self.backend.export_crops(
+                args["set"], out_dir=args.get("out_dir"), zip_path=args.get("zip_path"),
+                only=args.get("only") or "problem", side=args.get("side"),
+                padding=int(args.get("padding") or 8), scale=float(args.get("scale") or 1.0)))
+
+        if name == "lookup_item":
+            return text_result(self.backend.lookup(args["id"], sets=args.get("sets")))
+
+        if name == "compare_sets":
+            return text_result(self.backend.compare_sets(args["set"], args["other"]))
+
+        if name == "derive_set":
+            return text_result(self.backend.derive_set(
+                from_set=args["from_set"], new_id=args["new_id"], name=args.get("name"),
+                a_root=args.get("a_root"), b_root=args.get("b_root"),
+                only_ids=args.get("only_ids"), only_from=args.get("only_from"),
+                dry_run=bool(args.get("dry_run"))))
+
         if name == "list_previous_round_rejects":
             return text_result(self.backend.previous_round(args["set"]))
 
@@ -289,6 +410,9 @@ class Server:
         sides = ["a", "b"] if side == "both" else [side]
         if any(s not in ("a", "b") for s in sides):
             raise AgentError("side 只能是 a / b / both")
+
+        if args.get("stitch"):
+            return self._stitched(args, set_id, item_id)
 
         content = []
         skipped = []
@@ -316,6 +440,26 @@ class Server:
             summary["skipped"] = skipped
         content.append({"type": "text", "text": json.dumps(summary, ensure_ascii=False)})
         return content
+
+
+    def _stitched(self, args: dict, set_id: str, item_id: str) -> list[dict]:
+        """把原图和成品拼成一张对照图返回（模型一次只吃一张图时用）。"""
+        layout = args.get("stitch_layout") or "horizontal"
+        max_size = int(args.get("max_size") or 2048)
+        info = self.backend.pair_image(set_id, item_id, layout=layout,
+                                       max_width=max_size,
+                                       draw_annotations=args.get("draw_annotations", True))
+        path = Path(info["path"])
+        if not path.exists():
+            raise AgentError(f"拼好的对照图读不到：{path}")
+        summary = {"set": set_id, "id": item_id, "layout": layout, "size": info["size"],
+                   "labels": info["labels"], "boxes_drawn": info.get("boxes_drawn", 0),
+                   "note": "左边（或上边）是源A，右边（或下边）是源B，已按同一尺寸对齐，可直接逐处对比"}
+        return [
+            {"type": "image", "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+             "mimeType": "image/png"},
+            {"type": "text", "text": json.dumps(summary, ensure_ascii=False, indent=2)},
+        ]
 
 
 def text_result(payload) -> list[dict]:

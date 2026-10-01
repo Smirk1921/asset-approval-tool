@@ -122,6 +122,15 @@ $('#toastAction').addEventListener('click', () => {
    启动
    ============================================================ */
 
+/** 素材集下拉的内容（派生／删除集合后要重建）。 */
+function fillSetSelect() {
+  $('#setSelect').innerHTML = S.cfg.sets.map((s) => {
+    const bad = s.error ? '（配置有误）' : '';
+    const count = s.count ? ' · ' + s.count : '';
+    return '<option value="' + esc(s.id) + '">' + esc(s.name + bad + count) + '</option>';
+  }).join('');
+}
+
 async function init() {
   try {
     S.cfg = await apiGet('/api/config');
@@ -131,12 +140,7 @@ async function init() {
   }
   S.autoAdvance = !!S.cfg.autoAdvance;
 
-  // 素材集下拉
-  const select = $('#setSelect');
-  select.innerHTML = S.cfg.sets.map((s) => {
-    const bad = s.error ? '（配置有误）' : '';
-    return '<option value="' + esc(s.id) + '">' + esc(s.name + bad + (s.count ? ' · ' + s.count : '')) + '</option>';
-  }).join('');
+  fillSetSelect();
 
   $('#cfgPath').textContent = S.cfg.configPath;
   $('#cfgData').textContent = S.cfg.dataDir;
@@ -150,8 +154,27 @@ async function init() {
 
   bindUI();
 
-  const first = S.cfg.sets.find((s) => !s.error) || S.cfg.sets[0];
-  await loadSet(first.id);
+  const wanted = setFromUrl();
+  const preferred = (wanted && S.cfg.sets.find((s) => s.id === wanted))
+    || S.cfg.sets.find((s) => !s.error) || S.cfg.sets[0];
+  await loadSet(preferred.id);
+  startConfigWatch();
+}
+
+/** 每隔几秒问一次配置指纹，变了就提示刷新（改了 config.json 不用再自己想起来强刷）。 */
+function startConfigWatch() {
+  const tick = async () => {
+    try {
+      const info = await apiGet('/api/ping');
+      if (!S.configHash) { S.configHash = info.configHash; return; }
+      if (info.configHash && info.configHash !== S.configHash) {
+        $('#configWhat').textContent = '素材集或标签可能变了';
+        $('#configBar').classList.add('show');
+      }
+    } catch (err) { /* 服务重启中，忽略这次 */ }
+  };
+  tick();
+  setInterval(tick, 6000);
 }
 
 /** 检查标签快捷键有没有和内置快捷键撞车（撞了的话内置的会赢，标签键就哑了） */
@@ -208,6 +231,23 @@ function buildHelp() {
    素材集加载
    ============================================================ */
 
+/** 当前 URL 上带 ?set= 就打开那个素材集（刷新、分享链接都能停在同一个集合）。 */
+function setFromUrl() {
+  try {
+    return new URLSearchParams(location.search).get('set');
+  } catch (err) {
+    return null;
+  }
+}
+
+function rememberSetInUrl(setId) {
+  try {
+    const url = new URL(location.href);
+    url.searchParams.set('set', setId);
+    history.replaceState(null, '', url);
+  } catch (err) { /* 忽略：不影响使用 */ }
+}
+
 async function loadSet(setId) {
   busy(true);
   try {
@@ -226,6 +266,7 @@ async function loadSet(setId) {
     if (S.overlay.on) setOverlayMode(false);
     $('#resultPathHint').textContent = '结果文件：' + (data.resultPath || '');
     $('#setSelect').value = setId;
+    rememberSetInUrl(setId);
     configureForType();
     applyFilters();
     clearDetailPane();
@@ -464,6 +505,27 @@ function renderStats() {
   renderStaleBar(stale);
   renderRoundHint();
 
+  // 有源文件变过的条目时，在筛选条上直接给一个入口
+  const quickWrap = $('#quickFilters');
+  let chip = quickWrap.querySelector('.review-chip');
+  if (stale) {
+    if (!chip) {
+      chip = document.createElement('button');
+      chip.className = 'sm review-chip';
+      chip.title = '只看源文件被改过、结论可能过期的那些';
+      chip.addEventListener('click', () => {
+        S.filters.special = new Set(['stale']);
+        applyFilters();
+        renderAll();
+      });
+      quickWrap.appendChild(chip);
+    }
+    chip.innerHTML = '⚠ 需复审 <b>' + stale + '</b>';
+    chip.classList.toggle('on', (S.filters.special || new Set()).has('stale'));
+  } else if (chip) {
+    chip.remove();
+  }
+
   // 批量按钮直接标出会作用到多少条，避免「以为只影响当前页」
   const target = batchTarget();
   const suffix = '（' + target.keys.length + '）';
@@ -607,6 +669,15 @@ function paintMeta(item, full) {
     });
     if (S.draft.tags.length) rows.push({ k: '问题标签', v: S.draft.tags.join('、') });
     if (S.draft.annotations.length) rows.push({ k: '圈选', v: S.draft.annotations.length + ' 处' });
+  }
+  // 源文件在审批之后被改过：这里必须显眼，否则用户会沿用已经过期的结论
+  if (S.cur && recordOf(S.cur.key).x) {
+    rows.push({
+      k: '源文件',
+      v: '<span style="color:var(--flag)">⚠ 审批后已被改过，此结论可能过期</span> '
+         + '<button class="sm" id="btnReReview" style="margin-top:2px">清除结论，重新审</button>',
+      html: true,
+    });
   }
   $('#itemMeta').innerHTML = rows.map((row) =>
     '<dt>' + esc(row.k) + '</dt><dd>' + (row.html ? row.v : esc(row.v)) + '</dd>').join('');
@@ -1255,6 +1326,15 @@ function openBatchModal(status, mustSelect) {
   let body = '<div>将对 <b>' + target.keys.length + '</b> 条素材（' + esc(target.desc) + '）执行标记。</div>' +
     '<div class="warn" style="margin-top:8px">此操作会覆盖这些素材原有的审批状态。</div>';
   if (status === 'reject' || status === 'flag') {
+    const templates = S.cfg.templates || [];
+    if (templates.length) {
+      body += '<div style="margin-top:12px"><label style="color:var(--text-dim);font-size:12px">' +
+        '常用模板（点一下自动勾选对应标签）</label>' +
+        '<div id="modalTemplates" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+        templates.map((t) => '<span class="tag" data-mtemplate="' + esc(t.id) + '" title="' +
+          esc(t.tags.join('、')) + '">' + esc(t.name) + '</span>').join('') +
+        '</div></div>';
+    }
     body += '<div style="margin-top:12px"><label style="color:var(--text-dim);font-size:12px">统一附加问题标签（可多选）</label>' +
       '<div id="modalTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
       S.cfg.tags.map((t) => '<span class="tag" data-mtag="' + esc(t) + '">' + esc(t) + '</span>').join('') +
@@ -1265,6 +1345,17 @@ function openBatchModal(status, mustSelect) {
   S.batchPending = { status: status, keys: target.keys };
 
   $$('#modalTags .tag').forEach((el) => el.addEventListener('click', () => el.classList.toggle('on')));
+  // 模板：点一下把它包含的标签全部勾上（再点取消）
+  $$('#modalTemplates .tag').forEach((el) => el.addEventListener('click', () => {
+    const found = (S.cfg.templates || []).find((t) => t.id === el.dataset.mtemplate);
+    if (!found) return;
+    const on = !el.classList.contains('on');
+    el.classList.toggle('on', on);
+    found.tags.forEach((tag) => {
+      const chip = document.querySelector('#modalTags .tag[data-mtag="' + tag + '"]');
+      if (chip) chip.classList.toggle('on', on);
+    });
+  }));
 }
 
 async function runBatch() {
@@ -1322,6 +1413,28 @@ async function undoKeys(keys) {
   } finally {
     busy(false);
   }
+}
+
+/** 把当前这条的结论清掉（回到未审），用于「源文件变了、得重新看一遍」。 */
+async function clearCurrentResult() {
+  if (!S.cur) return;
+  if (!window.confirm('清除这一条的审批结论，让它回到未审？\n（原记录仍在 history 流水里）')) return;
+  busy(true);
+  try {
+    const data = await apiPost('/api/set/' + encodeURIComponent(S.set.id) + '/review',
+      { key: S.cur.key, status: '', tags: [], note: '', annotations: [] });
+    const rec = data.record || {};
+    S.statuses[S.cur.key] = { s: rec.status || '', t: [], n: 0, c: 0, x: 0 };
+    S.draft = { status: '', tags: [], note: '', annotations: [] };
+    S.lastNote = '';
+    paintDraftControls();
+    renderStats();
+    renderAnnotList();
+    drawAnnotations();
+    toast('已清除这条的结论，可以重新审了');
+  } catch (err) {
+    toast('清除失败：' + err.message, { error: true });
+  } finally { busy(false); }
 }
 
 async function undoCurrent() {
@@ -1395,6 +1508,11 @@ function bindUI() {
   });
   $('#btnAnnotate').addEventListener('click', toggleAnnotate);
 
+  // 详情页里的「清除结论，重新审」
+  $('#itemMeta').addEventListener('click', (e) => {
+    if (e.target.closest('#btnReReview')) clearCurrentResult();
+  });
+
   // 叠加对比
   $('#btnOverlay').addEventListener('click', () => setOverlayMode(!S.overlay.on));
   $('#btnOverlayOff').addEventListener('click', () => setOverlayMode(false));
@@ -1428,6 +1546,71 @@ function bindUI() {
   $('#staleDismiss').addEventListener('click', () => {
     S.staleDismissed = true;
     renderStaleBar();
+  });
+
+  // 派生新集合
+  $('#btnDerive').addEventListener('click', () => {
+    $('#deriveId').value = S.set.id + '_v2';
+    $('#deriveName').value = S.set.name + ' · 新一批';
+    $('#deriveBRoot').value = '';
+    $('#deriveCount').textContent = S.filtered.length;
+    $('#deriveModal').classList.add('show');
+  });
+  $('#deriveCancel').addEventListener('click', () => $('#deriveModal').classList.remove('show'));
+  $('#deriveConfirm').addEventListener('click', async () => {
+    const newId = $('#deriveId').value.trim();
+    if (!/^[A-Za-z0-9_.-]+$/.test(newId)) {
+      toast('集合 id 只能用英文、数字、下划线、点、横线', { error: true });
+      return;
+    }
+    const scope = (document.querySelector('input[name=deriveScope]:checked') || {}).value || 'filtered';
+    const body = {
+      from_set: S.set.id,
+      new_id: newId,
+      name: $('#deriveName').value.trim() || undefined,
+      b_root: $('#deriveBRoot').value.trim() || undefined,
+    };
+    if (scope === 'filtered') {
+      if (!S.filtered.length) { toast('当前筛选结果为空', { error: true }); return; }
+      body.only_ids = S.filtered.map((i) => S.items[i].id);
+    }
+    busy(true);
+    try {
+      const data = await apiPost('/api/agent/derive-set', body);
+      if (data.error) throw new Error(data.error);
+      $('#deriveModal').classList.remove('show');
+      S.cfg = await apiGet('/api/config');
+      fillSetSelect();
+      await loadSet(newId);
+      S.configHash = (await apiGet('/api/ping')).configHash;   // 自己改的不算"外部变更"
+      $('#configBar').classList.remove('show');
+      toast('已创建集合「' + newId + '」，共 ' + data.count + ' 条；配置写在 sets.d/ 下', { duration: 6000 });
+    } catch (err) {
+      toast('创建失败：' + err.message, { error: true, duration: 6000 });
+    } finally { busy(false); }
+  });
+
+  // 导出圈选裁剪
+  $('#btnExportCrops').addEventListener('click', async () => {
+    if (S.set.type !== 'image') { toast('文本素材集没有圈选裁剪', { error: true }); return; }
+    busy(true);
+    try {
+      const data = await apiPost('/api/agent/export-crops',
+        { set: S.set.id, only: 'problem', download: true });
+      if (data.error) throw new Error(data.error);
+      if (!data.count) { toast('没有可导出的圈选（这条素材集里还没有圈注）'); return; }
+      window.location.href = '/api/download?path=' + encodeURIComponent(data.zip);
+      toast('已导出 ' + data.count + ' 处圈选裁剪');
+    } catch (err) {
+      toast('导出失败：' + err.message, { error: true });
+    } finally { busy(false); }
+  });
+
+  // 配置更新提示
+  $('#configReload').addEventListener('click', () => location.reload());
+  $('#configLater').addEventListener('click', () => {
+    S.configHash = null;          // 下次探测再提示
+    $('#configBar').classList.remove('show');
   });
 
   // 轮次

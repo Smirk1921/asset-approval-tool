@@ -24,71 +24,17 @@ from pathlib import Path
 from .config import load_config
 from .materials import MaterialError, SetRegistry, item_version, read_text_file
 from .results import STATUS_CN, ResultStore
+from .version import __version__
 from .thumbs import thumbnail
 
-# 中文 / 英文 / 缩写都认，agent 传哪个都行
-_STATUS_ALIASES = {
-    "pass": "pass", "通过": "pass", "ok": "pass", "approved": "pass", "approve": "pass",
-    "reject": "reject", "打回": "reject", "fail": "reject", "failed": "reject", "rejected": "reject",
-    "flag": "flag", "存疑": "flag", "doubt": "flag", "unsure": "flag", "question": "flag",
-    "": "", "none": "", "未审": "", "unreviewed": "", "pending": "", "todo": "", "clear": "",
-}
-_STATUS_FILTERS = {
-    "all": None, "全部": None, "": None,
-    "unreviewed": "", "未审": "", "pending": "",
-    "pass": "pass", "通过": "pass",
-    "reject": "reject", "打回": "reject",
-    "flag": "flag", "存疑": "flag",
-}
-
-
-class AgentError(Exception):
-    """给 agent 看的错误：消息直接可读，不该让它去猜。"""
-
-
-def normalize_status(value, *, allow_filter: bool = False):
-    """把各种写法的状态统一成 pass/reject/flag/''。"""
-    if value is None:
-        return None
-    key = str(value).strip().lower()
-    if allow_filter:
-        if key in _STATUS_FILTERS:
-            return _STATUS_FILTERS[key]
-        raise AgentError(f"状态筛选值不认识：{value!r}（可用 all/unreviewed/pass/reject/flag）")
-    if key in _STATUS_ALIASES:
-        return _STATUS_ALIASES[key]
-    raise AgentError(f"状态值不认识：{value!r}（可用 pass/reject/flag/'' 或 通过/打回/存疑/未审）")
-
-
-def normalize_annotations(raw) -> list[dict]:
-    """校验并规范化圈选区域。坐标一律是相对图片的 0~1 比例。"""
-    if raw is None:
-        return []
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AgentError(f"annotations 不是合法 JSON：{exc}") from exc
-    if not isinstance(raw, list):
-        raise AgentError("annotations 必须是数组，每项形如 {x,y,w,h,side,note}")
-    out = []
-    for index, item in enumerate(raw, 1):
-        if not isinstance(item, dict):
-            raise AgentError(f"第 {index} 个圈选不是对象")
-        try:
-            box = {k: float(item.get(k, 0)) for k in ("x", "y", "w", "h")}
-        except (TypeError, ValueError) as exc:
-            raise AgentError(f"第 {index} 个圈选的 x/y/w/h 必须是数字") from exc
-        for key, value in box.items():
-            if not 0.0 <= value <= 1.0:
-                raise AgentError(f"第 {index} 个圈选的 {key}={value} 越界，必须是 0~1 的比例")
-        side = str(item.get("side") or "b").strip().lower()
-        if side not in ("a", "b"):
-            raise AgentError(f"第 {index} 个圈选的 side 只能是 a 或 b")
-        out.append({**box, "side": side,
-                    "note": str(item.get("note") or ""),
-                    "tag": str(item.get("tag") or "")})
-    return out
+from .agent_common import (AgentError, normalize_annotations, normalize_status,
+                            suggest_tag, validate_tags)
+from .agent_ext import (advice_payload, compare_sets as compare_sets_impl,
+                        derive_set as derive_set_impl, drop_set as drop_set_impl,
+                        export_crops as export_crops_impl, lookup as lookup_impl,
+                        pair_image as pair_image_impl,
+                        pair_images as pair_images_impl,
+                        reload_config, review_batch as review_batch_impl)
 
 
 def filter_items(material, records, *, status=None, tag=None, search=None,
@@ -182,10 +128,26 @@ def detail_item(material, item: dict, record: dict, *, is_stale: bool,
 class AgentAPI:
     """直接读写文件的操作层（不需要服务在跑）。"""
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, *, force_write: bool = False):
         self.cfg = load_config(config_path)
         self._registry = SetRegistry(self.cfg)
         self._stores: dict[str, ResultStore] = {}
+        # 直连写入前的安全检查开关，见 _assert_can_write
+        self.force_write = force_write
+
+    def _assert_can_write(self, action: str) -> None:
+        """直连改文件之前，确认没有服务正在跑。
+
+        服务把结果缓存在内存里、每次标记整份写回磁盘，所以「服务在跑 + 直连改文件」
+        = 改动会被服务下一次保存覆盖。这种静默丢数据比直接报错糟糕得多。
+        """
+        if self.force_write:
+            return
+        warning = pid_file_warning(self.cfg)
+        if warning:
+            raise AgentError(
+                f"不能直接改文件（{action}）：{warning}")
+
 
     # -- 内部 ---------------------------------------------------------
     def _set(self, set_id: str):
@@ -232,11 +194,13 @@ class AgentAPI:
             sets.append(entry)
         payload = {
             "ok": True,
+            "version": __version__,
             "config_path": self.cfg["config_path"],
             "data_dir": self.cfg["data_dir"],
             "server": f"http://{self.cfg.get('host', '127.0.0.1')}:{self.cfg.get('port', 8765)}/",
             "transport": "direct",
             "tags": self.cfg["tags"],
+            "templates": self.cfg.get("templates") or [],
             "sets": sets,
         }
         warning = pid_file_warning(self.cfg)
@@ -279,7 +243,9 @@ class AgentAPI:
 
     # -- 写 -----------------------------------------------------------
     def review(self, set_id: str, item_id: str, *, status=None, tags=None,
-               note=None, annotations=None) -> dict:
+               note=None, annotations=None, template=None, lenient_tags: bool = False) -> dict:
+        self._assert_can_write("写单条审批结果")
+        tags = self._resolve_tags(tags, template, lenient=lenient_tags)
         material = self._set(set_id)
         item = material.by_id(item_id) or material.by_id(Path(str(item_id)).stem)
         if item is None:
@@ -299,8 +265,8 @@ class AgentAPI:
         return {"ok": True, "changed": 1,
                 "item": detail_item(material, item, record, is_stale=self._is_stale(item, record, versions))}
 
-    def batch(self, set_id: str, *, ids=None, status=None, tags=None,
-              dry_run: bool = False, **filters) -> dict:
+    def batch(self, set_id: str, *, ids=None, status=None, tags=None, template=None,
+              lenient_tags: bool = False, dry_run: bool = False, **filters) -> dict:
         """批量改状态。
 
         选择范围必须明确：给 ids，或给至少一个筛选条件（filter_status / filter_tag /
@@ -309,6 +275,8 @@ class AgentAPI:
 
         注意 status 是「要改成什么状态」，不是筛选条件；筛选状态请用 filter_status。
         """
+        self._assert_can_write("批量改状态")
+        tags = self._resolve_tags(tags, template, lenient=lenient_tags)
         material = self._set(set_id)
         store = self._store(set_id)
         records = store.all()
@@ -349,6 +317,7 @@ class AgentAPI:
                 "ids": [t["id"] for t in targets], "stats": self._stats(material, store)}
 
     def undo(self, set_id: str, item_id: str) -> dict:
+        self._assert_can_write("撤销")
         material = self._set(set_id)
         item = material.by_id(item_id) or material.by_id(Path(str(item_id)).stem)
         if item is None:
@@ -365,6 +334,8 @@ class AgentAPI:
                                                 is_stale=self._is_stale(item, record, versions))}
 
     def clear_stale(self, set_id: str, *, ids=None, dry_run: bool = False) -> dict:
+        if not dry_run:
+            self._assert_can_write("清理过期结果")
         material = self._set(set_id)
         store = self._store(set_id)
         versions = self._versions(material)
@@ -382,6 +353,7 @@ class AgentAPI:
                 "ids": [t["id"] for t in targets]}
 
     def new_round(self, set_id: str) -> dict:
+        self._assert_can_write("归档新一轮")
         material = self._set(set_id)
         store = self._store(set_id)
         info = store.start_new_round()
@@ -435,10 +407,13 @@ class AgentAPI:
         elif fmt == "annotations":
             content = store.export_annotations_csv(rows)
             fmt = "csv"
+        elif fmt == "advice":
+            content = advice_payload(material, rows, self.cfg.get("tag_advice") or {})
         elif fmt == "json":
             content = store.export_json(rows)
         else:
-            raise AgentError(f"不支持的导出格式：{fmt}（可用 json/csv/annotations）")
+            raise AgentError(
+                f"不支持的导出格式：{fmt}（可用 json/csv/annotations/advice）")
 
         result = {"ok": True, "set_id": set_id, "format": fmt, "only": only, "count": len(rows)}
         if out:
@@ -477,7 +452,84 @@ class AgentAPI:
             payload["thumb_path"] = str(thumb)
         return payload
 
+    # -- 扩展能力（实现都在 core/agent_ext.py，两条通路共用）---------------
+    def pair_image(self, set_id=None, item_id=None, *, a=None, b=None, **options) -> dict:
+        material = store = None
+        if not (a and b):
+            material = self._set(set_id or "")
+            store = self._store(material.id)
+        return pair_image_impl(self.cfg, material=material, store=store, item_id=item_id,
+                               path_a=a, path_b=b, **options)
+
+    def pair_images(self, set_id: str, ids, **options) -> dict:
+        material = self._set(set_id)
+        return pair_images_impl(self.cfg, material, self._store(set_id), ids, **options)
+
+    def export_crops(self, set_id: str, **options) -> dict:
+        material = self._set(set_id)
+        return export_crops_impl(material, self._store(set_id), **options)
+
+    def review_batch(self, set_id: str, reviews, *, dry_run: bool = False,
+                     partial_ok: bool = False, lenient_tags: bool = False) -> dict:
+        if not dry_run:
+            self._assert_can_write("批量写回审批结果")
+        material = self._set(set_id)
+        self._versions(material)
+        return review_batch_impl(material, self._store(set_id), self.cfg, reviews,
+                                 dry_run=dry_run, partial_ok=partial_ok,
+                                 lenient_tags=lenient_tags)
+
+    def derive_set(self, *, from_set: str, new_id: str, dry_run: bool = False,
+                   **options) -> dict:
+        if not dry_run:
+            self._assert_can_write("派生新集合（要写配置）")
+        source = self._set(from_set)
+        info = derive_set_impl(self.cfg, source, self._store(from_set),
+                               new_id=new_id, dry_run=dry_run, **options)
+        if not dry_run:
+            self.cfg, self._registry = reload_config(self.cfg)
+            material = self._registry.get(new_id)
+            info.update({"count": len(material.items), "error": material.error,
+                         "warnings": material.warnings})
+        return info
+
+    def drop_set(self, set_id: str, *, dry_run: bool = False) -> dict:
+        if not dry_run:
+            self._assert_can_write("删除派生集合（要改配置）")
+        info = drop_set_impl(self.cfg, set_id, dry_run=dry_run)
+        if not dry_run:
+            self.cfg, self._registry = reload_config(self.cfg)
+        return info
+
+    def lookup(self, item_id: str, *, sets=None) -> dict:
+        return lookup_impl(self.cfg, self._registry, self._store, item_id, sets=sets)
+
+    def compare_sets(self, set_id: str, other: str) -> dict:
+        return compare_sets_impl(self._set(set_id), self._set(other),
+                                 self._store(set_id), self._store(other))
+
     # -- 辅助 ---------------------------------------------------------
+    def _resolve_tags(self, tags, template, *, lenient: bool = False) -> list[str] | None:
+        """把 --template 或标签列表合起来，并校验是否都在预设里。"""
+        resolved = None
+        if template:
+            found = next((t for t in self.cfg.get("templates", [])
+                          if t["id"] == template or t["name"] == template), None)
+            if found is None:
+                known = "、".join(t["id"] for t in self.cfg.get("templates", [])) or "（没配模板）"
+                raise AgentError(f"没有这个审批模板：{template!r}（可用：{known}）")
+            resolved = list(found["tags"])
+        if tags is not None:
+            extra = [str(t) for t in tags]
+            resolved = (resolved or []) + [t for t in extra if t not in (resolved or [])]
+        if resolved is not None:
+            validate_tags(resolved, self.cfg["tags"], strict=not lenient)
+        return resolved
+
+    def templates(self) -> dict:
+        return {"ok": True, "templates": self.cfg.get("templates", []),
+                "tags": self.cfg["tags"]}
+
     def _stats(self, material, store) -> dict:
         versions = self._versions(material)
         stats = store.stats([i["id"] for i in material.items])
@@ -561,6 +613,35 @@ class AgentClient:
         return self._get("/api/agent/image", set=set_id, id=item_id, side=side, max_size=max_size)
 
 
+    def pair_image(self, set_id=None, item_id=None, *, a=None, b=None, **options) -> dict:
+        return self._post("/api/agent/pair-image",
+                          {"set": set_id, "id": item_id, "a": a, "b": b, **options})
+
+    def pair_images(self, set_id: str, ids, **options) -> dict:
+        return self._post("/api/agent/pair-images", {"set": set_id, "ids": list(ids), **options})
+
+    def export_crops(self, set_id: str, **options) -> dict:
+        return self._post("/api/agent/export-crops", {"set": set_id, **options})
+
+    def review_batch(self, set_id: str, reviews, **options) -> dict:
+        return self._post("/api/agent/review-batch", {"set": set_id, "reviews": reviews, **options})
+
+    def derive_set(self, **options) -> dict:
+        return self._post("/api/agent/derive-set", options)
+
+    def drop_set(self, set_id: str, **options) -> dict:
+        return self._post("/api/agent/drop-set", {"set": set_id, **options})
+
+    def lookup(self, item_id: str, **options) -> dict:
+        return self._get("/api/agent/lookup", id=item_id, **options)
+
+    def compare_sets(self, set_id: str, other: str) -> dict:
+        return self._get("/api/agent/compare", set=set_id, other=other)
+
+    def templates(self) -> dict:
+        return self._get("/api/agent/templates")
+
+
 def server_alive(base_url: str, timeout: float = 1.5) -> bool:
     try:
         with urllib.request.urlopen(f"{base_url.rstrip('/')}/api/config", timeout=timeout) as response:
@@ -607,17 +688,19 @@ def pid_file_warning(cfg: dict) -> str | None:
             f"请改用 --server http://127.0.0.1:{port}，或先停掉它。")
 
 
-def make_backend(config_path: str, *, server: str | None = None, offline: bool = False):
+def make_backend(config_path: str, *, server: str | None = None, offline: bool = False,
+                 force_write: bool = False):
     """选一个实现：服务在跑就走 HTTP，否则直连文件。
 
     server 传 "auto" 时按配置里的 host/port 探测。
+    force_write 只在直连模式下有意义：跳过「服务在跑就别直连写」的保护。
     """
     cfg = load_config(config_path)
     base = server
     if base == "auto" or (base is None and not offline):
         base = f"http://{cfg.get('host', '127.0.0.1')}:{cfg.get('port', 8765)}"
     if offline or not base:
-        return AgentAPI(config_path)
+        return AgentAPI(config_path, force_write=force_write)
     if server_alive(base):
         return AgentClient(base)
-    return AgentAPI(config_path)
+    return AgentAPI(config_path, force_write=force_write)

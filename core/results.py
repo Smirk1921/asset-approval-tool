@@ -175,6 +175,60 @@ class ResultStore:
             return changed
 
     # ---------------------------------------------------------------- 撤销
+    def save_batch(self, entries) -> int:
+        """一次写多条，只落盘一次。
+
+        entries: [{id, status?, tags?, note?, annotations?, src?}]
+        比起逐条 save，省掉 N-1 次整份写盘；中途也不会出现"写了一半"的状态。
+        """
+        with self._lock:
+            now = _now()
+            count = 0
+            for entry in entries:
+                item_id = str(entry.get("id") or "")
+                if not item_id:
+                    continue
+                before = json.loads(json.dumps(self._items.get(item_id) or {})) or None
+                record = self._items.setdefault(item_id, {})
+                if entry.get("status") is not None:
+                    record["status"] = entry["status"] if entry["status"] in VALID_STATUS else ""
+                if entry.get("tags") is not None:
+                    record["tags"] = [str(t) for t in entry["tags"] if str(t).strip()]
+                if entry.get("note") is not None:
+                    record["note"] = str(entry["note"])
+                if entry.get("annotations") is not None:
+                    record["annotations"] = [_clean_annotation(a) for a in entry["annotations"]]
+                if entry.get("src"):
+                    record["src"] = entry["src"]
+                record["reviewed_at"] = now
+                record["round"] = self.round
+
+                if not record.get("status") and not record.get("tags") \
+                        and not record.get("note") and not record.get("annotations"):
+                    self._items.pop(item_id, None)
+                    snapshot = None
+                else:
+                    record.setdefault("tags", [])
+                    record.setdefault("note", "")
+                    record.setdefault("annotations", [])
+                    snapshot = json.loads(json.dumps(record))
+                if before != snapshot:
+                    self._push_undo(item_id, before)
+                count += 1
+            self._flush()
+            self._append_history_bulk([(str(e.get("id") or ""), self._items.get(str(e.get("id") or "")))
+                                       for e in entries if e.get("id")])
+            return count
+
+    def _append_history_bulk(self, pairs) -> None:
+        try:
+            with self.history_path.open("a", encoding="utf-8") as handle:
+                for item_id, snapshot in pairs:
+                    handle.write(json.dumps({"at": _now(), "item": item_id, "record": snapshot},
+                                            ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
     def _push_undo(self, item_id: str, snapshot: dict | None) -> None:
         stack = self._undo.setdefault(item_id, [])
         stack.append(snapshot)

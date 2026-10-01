@@ -27,10 +27,17 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from core.agent_api import (brief_item, detail_item, filter_items, normalize_annotations,
                             normalize_status)
+from core.agent_ext import (advice_payload, compare_sets as compare_sets_impl,
+                            derive_set as derive_set_impl, drop_set as drop_set_impl,
+                            export_crops as export_crops_impl, lookup as lookup_impl,
+                            pair_image as pair_image_impl,
+                            pair_images as pair_images_impl,
+                            reload_config, review_batch as review_batch_impl)
 from core.config import ConfigError, load_config
 from core.materials import MaterialError, SetRegistry, read_text_file
 from core.results import NO_HISTORY, STATUS_CN, ResultStore
 from core.thumbs import clear_cache, thumbnail
+from core.version import __version__
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -117,7 +124,12 @@ def api_config():
         sets.append(entry)
     return jsonify({
         "ok": True,
+        "version": __version__,
         "configPath": _cfg["config_path"],
+        "configMtime": _config_mtime(),
+        "configHash": _config_hash(),
+        "autoResetStale": bool(_cfg.get("auto_reset_stale")),
+        "templates": _cfg.get("templates") or [],
         "dataDir": _cfg["data_dir"],
         "tags": _cfg["tags"],
         "shortcuts": _cfg["shortcuts"],
@@ -130,6 +142,78 @@ def api_config():
     })
 
 
+@app.get("/api/ping")
+def api_ping():
+    """轻量探针：只返回版本和配置指纹，前端用它判断"配置是不是变了"。
+
+    刻意不返回素材集列表——那要重算源文件指纹，不适合几秒一次轮询。
+    """
+    return jsonify({"ok": True, "version": __version__,
+                    "configHash": _config_hash(), "configMtime": _config_mtime()})
+
+
+@app.get("/api/download")
+def api_download():
+    """把导出/裁剪产生的文件发给浏览器（只允许 data 目录下的文件）。"""
+    raw = request.args.get("path")
+    if not raw:
+        return _json_error("缺少参数 path")
+    target = Path(raw).resolve()
+    data_dir = Path(_cfg["data_dir"]).resolve()
+    try:
+        target.relative_to(data_dir)
+    except ValueError:
+        return _json_error("只允许下载结果目录里的文件", 403)
+    if not target.is_file():
+        return _json_error(f"文件不存在：{target}", 404)
+    return send_file(target, as_attachment=True, download_name=target.name)
+
+
+def _config_mtime() -> float:
+    try:
+        return os.path.getmtime(_cfg["config_path"])
+    except OSError:
+        return 0.0
+
+
+def _config_hash() -> str:
+    """配置内容的短哈希，前端靠它判断"配置变了、要不要刷新"。"""
+    import hashlib
+    try:
+        raw = Path(_cfg["config_path"]).read_bytes()
+    except OSError:
+        return ""
+    digest = hashlib.sha1(raw)
+    # sets.d 下的派生集合也算进配置指纹里
+    for extra in sorted(Path(_cfg["config_path"]).parent.glob("sets.d/*.json")):
+        try:
+            digest.update(extra.read_bytes())
+        except OSError:
+            continue
+    return digest.hexdigest()[:12]
+
+
+def apply_auto_reset_stale() -> int:
+    """配置里 auto_reset_stale=true 时，把「源文件已变」的结果清成未审。
+
+    默认是关的：静默清掉别人已经下过的结论风险太大，宁可让界面提示、由人点。
+    开了这个开关的人，就是明确要求"源一变就重审"。
+    """
+    if not _cfg.get("auto_reset_stale"):
+        return 0
+    cleared = 0
+    for spec in _cfg["sets"]:
+        material = _registry.get(spec["id"])
+        if material.error:
+            continue
+        material.refresh_versions()
+        store = _store_of(material)
+        stale = store.stale_ids({i["id"]: i.get("v", "") for i in material.items})
+        if stale:
+            cleared += store.clear_ids(stale)
+    return cleared
+
+
 @app.post("/api/reload")
 def api_reload():
     """重新读配置文件（素材集、标签、快捷键都会跟着更新），并重扫素材。"""
@@ -137,7 +221,9 @@ def api_reload():
     fresh = load_config(_cfg["config_path"])
     _cfg = fresh
     _registry = SetRegistry(_cfg)
+    cleared = apply_auto_reset_stale()
     return jsonify({"ok": True, "sets": [s["id"] for s in _cfg["sets"]],
+                    "autoResetCleared": cleared,
                     "tags": _cfg["tags"], "tagShortcuts": _cfg.get("tag_shortcuts") or []})
 
 
@@ -485,11 +571,13 @@ def agent_status():
         sets.append(entry)
     return jsonify({
         "ok": True,
+        "version": __version__,
         "config_path": _cfg["config_path"],
         "data_dir": _cfg["data_dir"],
         "server": f"http://{_cfg.get('host', '127.0.0.1')}:{_cfg.get('port', 8765)}/",
         "transport": "http",
         "tags": _cfg["tags"],
+        "templates": _cfg.get("templates") or [],
         "sets": sets,
     })
 
@@ -751,6 +839,166 @@ def agent_image():
     return jsonify(result)
 
 
+
+# ---------------------------------------------------------------- agent 扩展能力接口
+
+def _agent_material_of(body) -> tuple:
+    material = _agent_set(body.get("set"))
+    return material, _store_of(material)
+
+
+@app.post("/api/agent/pair-image")
+def agent_pair_image():
+    """把源A/源B 拼成一张对照图（视觉模型一次只吃一张图时用）。
+
+    也支持直接给两张图的路径做自由对比（比如上一版渲染 vs 这一版渲染）。
+    """
+    body = request.get_json(silent=True) or {}
+    if body.get("a") and body.get("b"):
+        material = store = None
+        set_id = None
+    else:
+        set_id = body.get("set")
+        material, store = _agent_material_of(body)
+    info = pair_image_impl(
+        _cfg, material=material, store=store, item_id=body.get("id"),
+        path_a=body.get("a"), path_b=body.get("b"),
+        layout=body.get("layout") or "horizontal",
+        max_width=body.get("max_width", 2048), max_height=body.get("max_height"),
+        gap=int(body.get("gap") or 8), labels=body.get("labels"),
+        out=body.get("out"), draw_annotations=body.get("draw_annotations", True),
+        use_cache=body.get("use_cache", True))
+    info["set_id"] = set_id
+    return jsonify(info)
+
+
+@app.post("/api/agent/pair-images")
+def agent_pair_images():
+    """批量拼接，一次拿很多张。"""
+    body = request.get_json(silent=True) or {}
+    material, store = _agent_material_of(body)
+    ids = _agent_ids(body.get("ids")) or []
+    out_dir = body.get("out_dir")
+    if not out_dir:
+        return _json_error("缺少参数 out_dir（拼好的图放哪个目录）")
+    return jsonify(pair_images_impl(
+        _cfg, material, store, ids, out_dir=out_dir,
+        layout=body.get("layout") or "horizontal",
+        max_width=body.get("max_width", 2048), max_height=body.get("max_height"),
+        gap=int(body.get("gap") or 8), labels=body.get("labels"),
+        draw_annotations=body.get("draw_annotations", True)))
+
+
+@app.post("/api/agent/export-crops")
+def agent_export_crops():
+    """把圈注框裁成小图导出（抠图素材、单独发给子代理看）。"""
+    body = request.get_json(silent=True) or {}
+    material, store = _agent_material_of(body)
+    zip_path = body.get("zip_path")
+    out_dir = body.get("out_dir")
+    if not zip_path and not out_dir and body.get("download"):
+        # 网页端点「导出圈选裁剪」时走这条：打包到结果目录下，再走 /api/download 下载
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        zip_path = str(Path(_cfg["data_dir"]) / "exports" / f"{material.id}_圈选裁剪_{stamp}.zip")
+    return jsonify(export_crops_impl(
+        material, store, out_dir=out_dir, zip_path=zip_path,
+        only=(body.get("only") or "problem"), side=body.get("side"),
+        padding=int(body.get("padding") or 8), scale=float(body.get("scale") or 1.0),
+        annotated_only=body.get("annotated_only", True)))
+
+
+@app.post("/api/agent/review-batch")
+def agent_review_batch():
+    """一次写回多条审批结果：先全校验，有一条不合法就整批不写。"""
+    body = request.get_json(silent=True) or {}
+    material, store = _agent_material_of(body)
+    if not body.get("dry_run"):
+        material.refresh_versions()
+    return jsonify(review_batch_impl(
+        material, store, _cfg, body.get("reviews") or [],
+        dry_run=bool(body.get("dry_run")), partial_ok=bool(body.get("partial_ok")),
+        lenient_tags=bool(body.get("lenient_tags"))))
+
+
+@app.post("/api/agent/derive-set")
+def agent_derive_set():
+    """从现有素材集派生一个新集合，写到 sets.d/（不动手写的 config.json）。"""
+    global _cfg, _registry
+    body = request.get_json(silent=True) or {}
+    from_set = body.get("from_set")
+    new_id = body.get("new_id")
+    if not from_set or not new_id:
+        return _json_error("需要 from_set 和 new_id")
+    source = _agent_set(from_set)
+    info = derive_set_impl(
+        _cfg, source, _store_of(source), new_id=new_id, name=body.get("name"),
+        a_root=body.get("a_root"), b_root=body.get("b_root"),
+        only_ids=_agent_ids(body.get("only_ids")), only_from=body.get("only_from"),
+        dry_run=bool(body.get("dry_run")))
+    if not body.get("dry_run"):
+        _cfg, _registry = reload_config(_cfg)
+        material = _registry.get(new_id)
+        info.update({"count": len(material.items), "error": material.error,
+                     "warnings": material.warnings})
+    return jsonify(info)
+
+
+@app.post("/api/agent/drop-set")
+def agent_drop_set():
+    """删掉一个派生出来的集合。"""
+    global _cfg, _registry
+    body = request.get_json(silent=True) or {}
+    set_id = body.get("set")
+    if not set_id:
+        return _json_error("缺少参数 set")
+    info = drop_set_impl(_cfg, set_id, dry_run=bool(body.get("dry_run")))
+    if not body.get("dry_run"):
+        _cfg, _registry = reload_config(_cfg)
+    return jsonify(info)
+
+
+@app.get("/api/agent/lookup")
+def agent_lookup():
+    """同一个素材 id 在各个集合里的结论。"""
+    item_id = request.args.get("id")
+    if not item_id:
+        return _json_error("缺少参数 id")
+    sets = _agent_ids(request.args.get("sets"))
+    # lookup 里按素材集 id 取结果，这里包一层（_store_of 收的是 material 对象）
+    return jsonify(lookup_impl(_cfg, _registry,
+                               lambda sid: _store_of(_registry.get(sid)),
+                               item_id, sets=sets))
+
+
+@app.get("/api/agent/compare")
+def agent_compare():
+    """两个集合按素材 id 对比结论。"""
+    left = request.args.get("set")
+    right = request.args.get("other")
+    if not left or not right:
+        return _json_error("需要 set 和 other 两个素材集 id")
+    a, b = _agent_set(left), _agent_set(right)
+    return jsonify(compare_sets_impl(a, b, _store_of(a), _store_of(b)))
+
+
+@app.get("/api/agent/templates")
+def agent_templates():
+    return jsonify({"ok": True, "templates": _cfg.get("templates") or [],
+                    "tags": _cfg["tags"]})
+
+
+@app.get("/api/agent/pair-file")
+def agent_pair_file():
+    """把拼好的对照图直接当图片返回（前端/工具预览用）。"""
+    path = request.args.get("path")
+    if not path:
+        return _json_error("缺少参数 path")
+    target = Path(path)
+    if not target.exists() or target.suffix.lower() != ".png":
+        return _json_error(f"找不到这张对照图：{path}", 404)
+    return send_file(target, mimetype="image/png", conditional=True)
+
+
 # ---------------------------------------------------------------- 导出
 
 @app.get("/api/set/<set_id>/export")
@@ -795,6 +1043,12 @@ def api_export(set_id: str):
         })
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    if fmt == "advice":
+        body = advice_payload(material, rows, _cfg.get("tag_advice") or {})
+        response = app.response_class(body, mimetype="application/json; charset=utf-8")
+        response.headers["Content-Disposition"] = \
+            f"attachment; filename=\"{material.id}_修正建议_{stamp}.json\""
+        return response
     if fmt == "csv":
         if part == "annotations":
             body = store.export_annotations_csv(rows)
@@ -956,8 +1210,10 @@ def main() -> None:
 
     pid_file = write_pid_file(_cfg["data_dir"], port)
 
+    cleared = apply_auto_reset_stale()
+
     print("=" * 62)
-    print("  图包素材审批工具")
+    print(f"  图包素材审批工具  v{__version__}")
     print("=" * 62)
     print(f"  进程 PID : {os.getpid()}   （记在 {pid_file}）")
     print(f"  配置文件 : {_cfg['config_path']}")
@@ -978,6 +1234,8 @@ def main() -> None:
                     print(f"            · {warning}")
         except MaterialError as exc:
             print(f"  [素材集] {spec['id']}  ⚠ {exc}")
+    if cleared:
+        print(f"  · auto_reset_stale 已生效：清掉 {cleared} 条源文件已变的结果")
     print("-" * 62)
     print(f"  浏览器打开： {url}")
     print("  按 Ctrl+C 停止")

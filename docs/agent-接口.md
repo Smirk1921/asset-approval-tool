@@ -107,16 +107,100 @@ python agent.py batch --set demo_cards --ids 101_front.png,102_front.png --statu
 
 注意 `--status` 是**要改成什么**，筛选状态要用 `--filter-status`。
 
+### `image-pair` — 拼接对照图
+
+把原图和成品拼成**一张**图。视觉模型一次只吃一张图时，这是唯一靠谱的做法；
+能一次吃多张的模型，用它也比"看两张再对齐"更准。
+
+```bash
+# 素材集里的某一张
+python agent.py image-pair --set demo_cards --id 102_front.png --out /tmp/pair.png
+
+# 自由双图：任意两张（例如上一版渲染 vs 这一版渲染）
+python agent.py image-pair --a old/102.png --b new/102.png --labels 上一版,这一版 --out cmp.png
+
+# 批量：一次拼很多张
+python agent.py image-pair --set demo_cards --ids-file ids.txt --out-dir /tmp/pairs
+```
+
+| 选项 | 说明 |
+|---|---|
+| `--layout horizontal\|vertical` | 左右（默认）或上下拼接 |
+| `--max-width N` | 拼好后总宽上限，超出整体等比缩小（默认 2048） |
+| `--max-height N` | 同上，高度上限 |
+| `--gap N` | 两图间隔像素，默认 8 |
+| `--labels A,B` | 自定义两侧标签；默认取素材集里的源名 |
+| `--no-label` / `--no-annotations` | 不画标签 / 不把已有圈注画上去 |
+| `--ids` / `--ids-file` / `--out-dir` | 批量模式 |
+
+**尺寸会归一**：横向拼接时两侧按等高对齐（原图和成品分辨率不同也不会一边大一边小），
+纵向按等宽。结果缓存到 `data/pair_cache/`，源文件变了自动重拼。
+
+### `review-batch` — 批量写回
+
+```bash
+python agent.py review-batch --set demo_cards --file reviews.json [--dry-run] [--partial-ok]
+cat reviews.json | python agent.py review-batch --set demo_cards --stdin
+```
+
+输入是数组，每项 `{id,status,tags,note,annotations}`。
+**先全校验再落盘**：有一条不合法就整批不写（`--partial-ok` 则只写合法的，
+失败清单在 `failures` 里）。返回 `total/succeeded/failed/failures`。
+
+### `export-crops` — 把圈注区域裁出来
+
+```bash
+python agent.py export-crops --set demo_cards --zip 裁剪.zip [--scale 2] [--padding 12]
+python agent.py export-crops --set demo_cards --out 目录/ [--only problem] [--side b]
+```
+
+每处圈注裁一张 PNG，文件名 `素材id_序号_侧_说明.png`，返回里带实际像素矩形。
+
+### `derive-set` / `drop-set` — 派生与删除集合
+
+```bash
+python agent.py derive-set --from demo_cards --id recheck --name "重渲复核" \
+    --b-root render/新批次 --only-ids 102_front.png,104_front.png [--dry-run]
+python agent.py derive-set --from demo_cards --id recheck2 --only-from reject
+python agent.py drop-set --set recheck
+```
+
+写到 `sets.d/<id>.json`，**不动手写的 config.json**，写完立刻可用。
+新增素材集字段 `only_ids`（白名单）——不用往新目录拷文件就能"只看这 N 张"。
+`drop-set` 只能删派生出来的集合，手写的不让删。
+
+### `lookup` / `compare` — 跨集合查询
+
+```bash
+python agent.py lookup --id 102_front.png [--sets a,b]     # 这张卡在各集合的结论
+python agent.py compare --set new --other old              # 两个集合逐条对比
+```
+
+### `templates` — 预设标签组合
+
+```bash
+python agent.py templates
+python agent.py review --set S --id I --template text_layout --note "..."
+```
+
+模板定义在 `config.json` 的 `templates`。
+
 ### 其余命令
 
 | 命令 | 说明 |
 |---|---|
 | `undo --set S --id I` | 撤销某条的上一步（撤销记录只存在于当前服务进程内，重启后失效） |
-| `export --set S [--format json\|csv\|annotations] [--only all\|reviewed\|problem] [--out 路径]` | 不给 `--out` 就把内容放进 JSON 返回 |
+| `export --set S [--format json\|csv\|annotations\|advice] [--only all\|reviewed\|problem] [--out 路径]` | 不给 `--out` 就把内容放进 JSON 返回；`advice` 把标签展开成修正建议（话术取自配置的 `tag_advice`） |
 | `image --set S --id I [--side a\|b] [--max-size N]` | 拿图片文件路径，`--max-size` 顺便生成缩略图 |
 | `clear-stale --set S [--ids ...] [--dry-run]` | 清掉过期结果，让它们回到未审 |
 | `new-round --set S --yes` | 归档本轮、开始新一轮（**必须加 `--yes`**） |
 | `prev-round --set S` | 上一轮被打回的素材 id |
+
+### 直连写文件的保护
+
+服务在跑的时候，`--offline` 直连改文件会被**拦住**（服务把结果缓存在内存里，
+直连写会被它下一次保存覆盖）。要么不加 `--offline`（自动走 HTTP），
+要么先停服务。确实要覆盖加 `--force`。只读操作和 `--dry-run` 不受影响。
 
 ---
 
@@ -143,13 +227,17 @@ python agent.py batch --set demo_cards --ids 101_front.png,102_front.png --statu
 | `approval_status` | — | 各素材集进度总览 |
 | `list_items` | `set` | 列出素材，支持 `status/tag/search/group/stale_only/no_tags/annotated/noted/limit/offset` |
 | `get_item` | `set`, `id` | 单条详情（图片给路径，文本给正文） |
-| `get_item_images` | `set`, `id` | **把图片本身返回给你看**，`side` 可为 `a`/`b`/`both`（默认 both），`max_size` 默认 900 |
+| `get_item_images` | `set`, `id` | **把图片本身返回给你看**。`side` 可为 `a`/`b`/`both`（默认 both）；**`stitch=true` 时把两侧拼成一张对照图返回**（推荐，模型一次只吃一张图时也能用）；`draw_annotations` 控制是否画出已有圈注 |
 | `review_item` | `set`, `id` | 写结论：`status`/`tags`/`note`/`annotations` |
-| `batch_review` | `set`, `status` | 批量改状态，范围用 `ids` 或 `filter_*`；支持 `dry_run` |
+| `batch_review` | `set` | 两种用法：①同状态批量（给 `status` + 范围）②**逐条写回**（给 `reviews=[{id,status,tags,note}]`，全部校验通过才写）。都支持 `dry_run` |
 | `export_results` | `set` | `format`: json/csv/annotations；`only`: all/reviewed/problem |
 | `clear_stale_results` | `set` | 清过期结果，支持 `dry_run` |
 | `start_new_round` | `set` | 归档本轮、开始新一轮 |
 | `list_previous_round_rejects` | `set` | 上轮打回的 id |
+| `export_crops` | `set` | 把圈注框裁成小图导出（`out_dir` / `zip_path`） |
+| `lookup_item` | `id` | 同一素材在各集合里的结论 |
+| `compare_sets` | `set`, `other` | 两个集合逐条对比状态 |
+| `derive_set` | `from_set`, `new_id` | 派生隔离集合（可给 `b_root` / `only_ids` / `only_from`） |
 
 ### 关于 `get_item_images`
 
@@ -176,8 +264,18 @@ python agent.py batch --set demo_cards --ids 101_front.png,102_front.png --statu
 | POST | `/api/agent/clear-stale` | `{set, ids?, dry_run?}` |
 | POST | `/api/agent/new-round` | `{set}` |
 | GET | `/api/agent/previous-round?set=` | 上轮打回的 id |
-| POST | `/api/agent/export` | `{set, format, only, out?}`，不给 `out` 就把内容放在 `content` 里 |
+| POST | `/api/agent/export` | `{set, format: json\|csv\|annotations\|advice, only, out?}`，不给 `out` 就把内容放在 `content` 里 |
 | GET | `/api/agent/image?set=&id=&side=&max_size=` | 图片文件路径（`max_size` 时另存缩略图） |
+| POST | `/api/agent/pair-image` | `{set,id}` 或 `{a,b}`（自由双图）；可给 `layout/max_width/gap/labels/out` |
+| POST | `/api/agent/pair-images` | `{set, ids, out_dir}` 批量拼接 |
+| POST | `/api/agent/review-batch` | `{set, reviews:[...], dry_run?, partial_ok?}` |
+| POST | `/api/agent/export-crops` | `{set, out_dir?/zip_path?, only, side, padding, scale}` |
+| POST | `/api/agent/derive-set` | `{from_set, new_id, name?, b_root?, only_ids?/only_from?, dry_run?}` |
+| POST | `/api/agent/drop-set` | `{set, dry_run?}` |
+| GET | `/api/agent/lookup?id=&sets=` | 同一素材在各集合的结论 |
+| GET | `/api/agent/compare?set=&other=` | 两集合逐条对比 |
+| GET | `/api/agent/templates` | 预设标签组合 |
+| GET | `/api/ping` | 版本 + 配置指纹（前端用它判断配置有没有变） |
 
 例：
 

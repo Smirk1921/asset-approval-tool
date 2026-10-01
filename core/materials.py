@@ -37,6 +37,11 @@ def read_text_file(path: str) -> str:
         return f"（读取失败：{exc}）"
 
 
+def file_stamp(path: str) -> str:
+    """源文件指纹（mtime_ns + size），公开版本给 agent_ext 用。"""
+    return _file_stamp(path)
+
+
 def _file_stamp(path: str) -> str:
     try:
         stat = Path(path).stat()
@@ -251,9 +256,27 @@ class MaterialSet:
                 self._build_manifest()
             else:
                 self._build_basename()
+            self._apply_only_ids()
             self._finalize()
         except MaterialError as exc:
             self.error = str(exc)
+
+    def _apply_only_ids(self) -> None:
+        """只保留 only_ids 白名单里的素材（没配就是全部）。
+
+        用途：从一个大素材集里「只看这批」，不必为了隔离而把文件拷到新目录。
+        """
+        only = self.spec.get("only_ids") or []
+        if not only:
+            return
+        keep = {str(i) for i in only}
+        matched = {item["id"] for item in self.items}
+        self.items = [item for item in self.items if item["id"] in keep]
+        missing = keep - matched
+        if missing:
+            preview = "、".join(sorted(missing)[:5])
+            more = f" 等 {len(missing)} 个" if len(missing) > 5 else ""
+            self.warnings.append(f"only_ids 里有没匹配到的 id：{preview}{more}")
 
     # -- 元数据清单 -------------------------------------------------------
     def _load_meta(self) -> None:
