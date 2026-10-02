@@ -81,7 +81,7 @@ TOOLS = [
     },
     {
         "name": "get_item",
-        "description": "单条素材的完整信息：图片素材给原图/成品的文件路径；文本素材直接给原文与译文正文。附带已有审批结果与圈选明细。",
+        "description": "单条素材的完整信息：图片素材给两侧的文件路径；文本素材直接给两侧的文本正文。附带已有审批结果与圈选明细。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -94,17 +94,17 @@ TOOLS = [
     },
     {
         "name": "get_item_images",
-        "description": "把素材图片直接返回给你看（视觉模型可用）。side 默认 both，会一次给出英文原图和中文成品，便于对照找问题；返回的图是压缩过的预览，原图路径见 get_item。",
+        "description": "把素材图片直接返回给你看（视觉模型可用）。side 默认 both，会一次给出两侧的图（源A 和 源B），便于对照找问题；返回的图是压缩过的预览，原图路径见 get_item。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "set": {"type": "string", "description": _SET_DESC},
                 "id": {"type": "string", "description": "素材 id"},
                 "side": {"type": "string", "enum": ["a", "b", "both"],
-                         "description": "a=源A原图，b=源B成品，both=两张都给（默认）"},
+                         "description": "a=源A，b=源B，both=两张都给（默认）"},
                 "max_size": {"type": "integer", "description": "长边像素上限，默认 900，越大越清晰也越费 token"},
                 "stitch": {"type": "boolean",
-                           "description": "true 时把原图和成品拼成一张对照图返回（左原图右成品）。"
+                           "description": "true 时把两侧拼成一张对照图返回（左源A 右源B）。"
                                           "模型一次只能吃一张图、或想做严格左右对比时用这个"},
                 "stitch_layout": {"type": "string", "enum": ["horizontal", "vertical"],
                                   "description": "拼接方向，默认 horizontal（左右）"},
@@ -431,7 +431,7 @@ class Server:
                 "data": base64.b64encode(path.read_bytes()).decode("ascii"),
                 "mimeType": "image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "image/png",
             })
-            content.append({"type": "text", "text": f"{one}（{'源A' if one == 'a' else '源B'}）原图路径：{info['path']}"})
+            content.append({"type": "text", "text": f"{one}（{'源A' if one == 'a' else '源B'}）路径：{info['path']}"})
 
         if not content:
             raise AgentError("没取到任何图片：" + "；".join(skipped))

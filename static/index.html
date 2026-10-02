@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>图包素材审批工具</title>
+<script>
+  // 在样式表加载前决定主题，避免首屏闪一下另一种主题
+  (function () {
+    var pref = localStorage.getItem('imgreview:theme') || 'system';
+    var dark = pref === 'dark' ||
+      (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  })();
+</script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -25,13 +35,18 @@
     <div class="spacer"></div>
 
     <input type="search" id="searchBox" placeholder="搜索 文件名 / 卡号 / 标题  ( / )" title="搜索定位">
+    <button id="btnTheme" class="icon" title="主题：跟随系统 / 浅色 / 深色" aria-label="切换主题">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    </button>
     <button id="btnFilter" title="按属性筛选">筛选 <span id="filterCount" class="badge-count"></span></button>
     <button id="btnHelp" class="icon" title="快捷键与说明">?</button>
-    <button id="btnSettings" class="icon" title="配置与重载">⚙</button>
+    <button id="btnSettings" class="icon" title="配置与重载" aria-label="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </header>
 
   <div id="staleBar">
-    <span>⚠ 有 <b id="staleCount">0</b> 条素材在你审批之后源文件又被改过（重渲过），这些结果可能已经过期。</span>
+    <span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:2px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+      有 <b id="staleCount">0</b> 条素材在你审批之后源文件又被改过（重渲过），这些结果可能已经过期。</span>
     <button class="sm" id="staleShow">只看这些</button>
     <button class="sm" id="staleClear">清除它们的结果，重新审</button>
     <button class="sm" id="staleDismiss" title="这次先不管">忽略</button>
@@ -51,9 +66,9 @@
     <div class="stat-item" id="quickFilters">
       <button class="sm on" data-status="all">全部</button>
       <button class="sm" data-status="">未审</button>
-      <button class="sm" data-status="pass">✅ 通过</button>
-      <button class="sm" data-status="reject">❌ 打回</button>
-      <button class="sm" data-status="flag">⚠️ 存疑</button>
+      <button class="sm" data-status="pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> 通过</button>
+      <button class="sm" data-status="reject"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> 打回</button>
+      <button class="sm" data-status="flag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> 存疑</button>
     </div>
     <div class="stat-item" id="countStats"></div>
     <div class="spacer" style="flex:1"></div>
@@ -64,20 +79,21 @@
     <!-- ============================ 单张对照视图 ============================ -->
     <section id="detailView">
       <div id="canvasArea">
-        <div id="itemToolbar">
+        <!-- 用 CSS order 重排：画布(panes/textWrap/modelWrap) 在上，命令栏(cmdBar) 和标签行(tagRow) 在下 -->
+        <div id="cmdBar">
           <div class="group status-btns" id="statusBtns">
-            <button class="pass"   data-status="pass">✅ 通过<em class="key-hint">1</em></button>
-            <button class="reject" data-status="reject">❌ 打回<em class="key-hint">2</em></button>
-            <button class="flag"   data-status="flag">⚠️ 存疑<em class="key-hint">3</em></button>
+            <button class="pass"   data-status="pass" title="通过 (1)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> 通过<em class="key-hint">1</em></button>
+            <button class="reject" data-status="reject" title="打回 (2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> 打回<em class="key-hint">2</em></button>
+            <button class="flag"   data-status="flag" title="存疑 (3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> 存疑<em class="key-hint">3</em></button>
             <button data-status="" title="清除标记 (0)">清除<em class="key-hint">0</em></button>
           </div>
 
           <div class="sep"></div>
 
           <div class="group">
-            <button id="btnPrev" title="上一个 (←)">◀ 上一个</button>
+            <button id="btnPrev" title="上一个 (←)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> 上一个</button>
             <span class="mono" id="posLabel" style="color:var(--text-dim);min-width:76px;text-align:center">— / —</span>
-            <button id="btnNext" title="下一个 (→)">下一个 ▶</button>
+            <button id="btnNext" title="下一个 (→)">下一个 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
           </div>
 
           <div class="spacer"></div>
@@ -90,8 +106,19 @@
             <span class="mono" id="zoomLabel" style="color:var(--text-dim);min-width:44px;text-align:right">100%</span>
             <button id="btnSync" class="sm on" title="左右同步缩放/平移 (S)">同步</button>
             <button id="btnOverlay" class="sm" title="叠加对比：滑块 + 空格闪烁 (O)">叠加对比</button>
-            <button id="btnAnnotate" class="sm" title="圈图标注：拖拽画框 (R)">✏️ 圈图</button>
+            <button id="btnAnnotate" class="sm" title="圈图标注：拖拽画框 (R)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg> 圈图</button>
           </div>
+
+          <div class="group" id="modelCtl" style="display:none">
+            <button class="sm" id="btnModelSync" title="左右同步视角">同步视角</button>
+            <button class="sm" id="btnModelReset" title="重置视角">重置视角</button>
+            <span class="meta" id="modelInfo" style="color:var(--text-dim);font-size:11px"></span>
+          </div>
+          <div class="spacer"></div>
+
+          <button id="btnSidePanel" class="icon sm" title="展开/收起详情面板 (Tab)" aria-label="详情面板">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>
+          </button>
 
           <div class="group" id="textCtl" style="display:none">
             <button class="sm" id="btnFontDown" title="缩小字号">A−</button>
@@ -148,7 +175,10 @@
               <span class="role">叠加对比</span>
               <span class="meta" id="overlayHint">拖动中间竖线分界；按住空格键临时看全幅原图</span>
               <span class="spacer"></span>
-              <button class="sm" id="btnBlend" title="成品以半透明盖在原图上">半透明重叠</button>
+              <div class="ov-mode" id="overlayModeSeg">
+                <button data-mode="slider" class="on">滑块对比</button>
+                <button data-mode="blend">半透明叠加</button>
+              </div>
               <button class="sm" id="btnOverlayOff">退出叠加</button>
             </div>
             <div class="viewport" id="viewportO">
@@ -156,6 +186,28 @@
               <div class="ov-label ov-label-l" id="ovLabelL">原图</div>
               <div class="ov-label ov-label-r" id="ovLabelR">成品</div>
               <div class="ov-divider" id="ovDivider"><span class="ov-grip">⇔</span></div>
+              <div class="blend-slider" id="blendSlider">
+                <span>透明度</span>
+                <input type="range" id="blendAlpha" min="0" max="100" value="50">
+                <span id="blendAlphaVal">50%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="model-wrap" id="modelWrap" style="display:none">
+          <div class="model-pane" data-side="a">
+            <div class="pane-head"><span class="role" id="modelRoleA">源A</span><span class="meta" id="modelMetaA"></span></div>
+            <div class="model-viewport" id="modelViewportA">
+              <canvas id="modelCanvasA"></canvas>
+              <div class="model-empty" id="modelEmptyA" style="display:none"></div>
+            </div>
+          </div>
+          <div class="model-pane" data-side="b">
+            <div class="pane-head"><span class="role" id="modelRoleB">源B</span><span class="meta" id="modelMetaB"></span></div>
+            <div class="model-viewport" id="modelViewportB">
+              <canvas id="modelCanvasB"></canvas>
+              <div class="model-empty" id="modelEmptyB" style="display:none"></div>
             </div>
           </div>
         </div>
@@ -174,6 +226,12 @@
       </div>
 
       <aside id="sidePanel">
+        <div class="side-head">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>
+          <span>详情</span>
+          <span class="spacer"></span>
+          <button class="close" id="btnSideClose" title="收起 (Tab)">收起</button>
+        </div>
         <div class="side-section">
           <h3>素材信息</h3>
           <dl class="kv" id="itemMeta"></dl>
@@ -241,7 +299,7 @@
         <button class="sm" id="wallBatchPass">全部通过</button>
         <button class="sm" id="wallBatchFlag">全部存疑</button>
         <button class="sm" id="wallBatchReject">全部打回…</button>
-        <button class="sm" id="wallClearCurrent" title="把目标素材标记为未审">标记为未审</button>
+        <button class="sm" id="wallClearCurrent" title="把选中素材还原为未审（二次确认，可撤销）">清除审批…</button>
         <div class="sep" style="width:1px;height:20px;background:--line-2"></div>
         <button class="sm on" id="wallDim" title="已审的缩略图半透明显示，未审的更显眼">淡显已审</button>
         <button class="sm" id="wallSizeDown" title="缩小格子">小</button>
@@ -251,11 +309,11 @@
       </div>
       <div id="wallGrid"></div>
       <div id="wallPager">
-        <button class="sm" id="pageFirst">« 首页</button>
-        <button class="sm" id="pagePrev">‹ 上一页</button>
+        <button class="sm" id="pageFirst"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> 首页</button>
+        <button class="sm" id="pagePrev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> 上一页</button>
         <span class="pageinfo" id="pageInfo">—</span>
-        <button class="sm" id="pageNext">下一页 ›</button>
-        <button class="sm" id="pageLast">末页 »</button>
+        <button class="sm" id="pageNext">下一页 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+        <button class="sm" id="pageLast">末页 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
         <span class="pageinfo">跳到</span>
         <input type="text" id="pageJump" style="width:56px;text-align:center" title="输入页码后回车">
       </div>
@@ -355,6 +413,8 @@
 
 <div id="loading" style="display:none">加载中…</div>
 
+<script src="/static/icons.js"></script>
+<script src="/static/model.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -37,7 +37,8 @@ async function apiPost(url, body) {
 
 /* ------------------------------------------------------------ 全局状态 */
 
-const S = {
+/** 全局应用状态。显式挂到 window 上，让 model.js 这种独立脚本也能读到。 */
+const S = window.S = {
   cfg: null,
   set: null,               // 当前素材集 spec
   items: [],               // 精简清单（服务端顺序）
@@ -63,9 +64,10 @@ const S = {
   draft: null,             // 当前编辑中的审批内容
   itemCache: new Map(),
   annotFocus: -1,
+  annotAutoOpened: false,   // 这次圈选是我自动展开的侧栏，输入完要自动收起
 
   zoom: { scale: 1, tx: 0, ty: 0, sync: true, fit: 1, nat: null, userAdjusted: false },
-  overlay: { on: false, divider: 50, blend: false },
+  overlay: { on: false, mode: 'slider', divider: 50, alpha: 0.5 },
 
   textFont: 15,
   textWrap: true,
@@ -74,6 +76,8 @@ const S = {
 
   backToWallAfterAnnotate: false,
 
+  theme: 'system',          // system | light | dark
+
   noteTimer: null,
   toastTimer: null,
   toastAction: null,
@@ -81,6 +85,60 @@ const S = {
 };
 
 const STATUS_CN = { pass: '通过', reject: '打回', flag: '存疑', '': '未审' };
+
+/* ------------------------------------------------------------ 主题（跟随系统 / 手动切换） */
+
+const THEME_KEY = 'imgreview:theme';
+
+function getThemePref() {
+  return localStorage.getItem(THEME_KEY) || 'system';
+}
+
+function applyTheme(pref) {
+  const dark = pref === 'dark' ||
+    (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  S.theme = pref;
+  // 切换主题后重新渲染依赖主题的 UI（比如圈选框颜色、状态点）
+  if (S.set) {
+    drawAnnotations();
+    renderWall();
+  }
+}
+
+function setTheme(pref) {
+  localStorage.setItem(THEME_KEY, pref);
+  applyTheme(pref);
+  updateThemeButton();
+}
+
+function updateThemeButton() {
+  const btn = $('#btnTheme');
+  if (!btn) return;
+  const pref = getThemePref();
+  const icons = {
+    system: Icons.get('monitor', 15),
+    light: Icons.get('sun', 15),
+    dark: Icons.get('moon', 15),
+  };
+  const labels = { system: '跟随系统', light: '浅色', dark: '深色' };
+  btn.innerHTML = icons[pref];
+  btn.title = '主题：' + labels[pref] + '（点击切换）';
+}
+
+function cycleTheme() {
+  const order = ['system', 'light', 'dark'];
+  const current = order.indexOf(getThemePref());
+  setTheme(order[(current + 1) % order.length]);
+}
+
+// 跟随系统切换（仅当用户选 system 时）
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (getThemePref() === 'system') applyTheme('system');
+  });
+}
 
 /* ------------------------------------------------------------ 加载遮罩 */
 
@@ -151,6 +209,9 @@ async function init() {
     toast('快捷键有冲突：' + conflicts.join('；') + '。请改 config.json 里的 tag_shortcuts 或 shortcuts。',
       { error: true, duration: 10000 });
   }
+
+  applyTheme(getThemePref());
+  updateThemeButton();
 
   bindUI();
 
@@ -290,11 +351,16 @@ function tagChipHtml(tag, index, attr) {
 }
 
 function configureForType() {
-  const isImage = S.set.type === 'image';
+  const type = S.set.type;                    // image | text | model
+  const isImage = type === 'image';
+  const isText = type === 'text';
+  const isModel = type === 'model';
   $('#imageCtl').style.display = isImage ? 'flex' : 'none';
-  $('#textCtl').style.display = isImage ? 'none' : 'flex';
+  $('#textCtl').style.display = isText ? 'flex' : 'none';
+  $('#modelCtl').style.display = isModel ? 'flex' : 'none';
   $('#panes').style.display = isImage ? 'flex' : 'none';
-  $('#textWrap').style.display = isImage ? 'none' : 'flex';
+  $('#textWrap').style.display = isText ? 'flex' : 'none';
+  $('#modelWrap').style.display = isModel ? 'flex' : 'none';
   $('#roleA').textContent = S.set.sourceA;
   $('#roleB').textContent = S.set.sourceB;
   $('#textRoleA').textContent = S.set.sourceA;
@@ -491,8 +557,9 @@ function renderStats() {
   $$('#quickFilters button').forEach((btn) => {
     const key = btn.dataset.status;
     const count = quick[key] === undefined ? '' : quick[key];
-    const label = { all: '全部', '': '未审', pass: '✅ 通过', reject: '❌ 打回', flag: '⚠️ 存疑' }[key] || key;
-    btn.innerHTML = label + ' <b style="opacity:.75">' + count + '</b>';
+    const label = { all: '全部', '': '未审', pass: '通过', reject: '打回', flag: '存疑' }[key] || key;
+    const icon = { pass: Icons.get('check', 13), reject: Icons.get('x', 13), flag: Icons.get('alertTriangle', 13) }[key] || '';
+    btn.innerHTML = icon + ' ' + label + ' <b style="opacity:.75">' + count + '</b>';
   });
 
   $('#countStats').innerHTML =
@@ -520,7 +587,7 @@ function renderStats() {
       });
       quickWrap.appendChild(chip);
     }
-    chip.innerHTML = '⚠ 需复审 <b>' + stale + '</b>';
+    chip.innerHTML = Icons.get('alertTriangle', 13) + ' 需复审 <b>' + stale + '</b>';
     chip.classList.toggle('on', (S.filters.special || new Set()).has('stale'));
   } else if (chip) {
     chip.remove();
@@ -634,7 +701,9 @@ async function renderDetail() {
   paintDraftControls();
   paintMeta(item, full);
 
-  if (S.set.type === 'image') renderImagePanes(full); else renderTextPanes(full);
+  if (S.set.type === 'image') renderImagePanes(full);
+  else if (S.set.type === 'model') renderModelPanesLazy(full);
+  else renderTextPanes(full);
   renderAnnotList();
   prefetchNeighbors();
 }
@@ -674,7 +743,7 @@ function paintMeta(item, full) {
   if (S.cur && recordOf(S.cur.key).x) {
     rows.push({
       k: '源文件',
-      v: '<span style="color:var(--flag)">⚠ 审批后已被改过，此结论可能过期</span> '
+      v: '<span style="color:var(--flag)">' + Icons.get('alertTriangle', 13) + ' 审批后已被改过，此结论可能过期</span> '
          + '<button class="sm" id="btnReReview" style="margin-top:2px">清除结论，重新审</button>',
       html: true,
     });
@@ -713,6 +782,27 @@ function shortPath(path) {
 }
 
 /* ------------------------------------------------------------ 图片对照 */
+
+/** model 类型的 3D 预览。model.js 是普通脚本、自包含（不依赖 import map），
+ *  挂到 window.ModelPreview 上。加载失败时降级为元信息，不影响其它视图。 */
+function renderModelPanesLazy(item) {
+  if (window.ModelPreview && typeof window.ModelPreview.renderModelPanes === 'function') {
+    window.ModelPreview.renderModelPanes(item).catch(() => { /* 错误已在 model.js 里降级 */ });
+    return;
+  }
+  const el = document.getElementById('modelInfo');
+  if (el) el.textContent = '3D 预览模块未加载';
+  ['a', 'b'].forEach((side) => {
+    const info = item[side] || {};
+    const empty = document.getElementById('modelEmpty' + side.toUpperCase());
+    if (empty) {
+      empty.style.display = 'flex';
+      empty.textContent = info.exists
+        ? '3D 预览模块未加载。文件：' + (info.path || '')
+        : (info.missing_reason || '缺少该侧文件');
+    }
+  });
+}
 
 function showEmpty(side, message) {
   const stage = $('#stage' + side.toUpperCase());
@@ -797,17 +887,22 @@ function stageBox(side, w, h) {
   stage.style.marginTop = (-h / 2) + 'px';
 }
 
-/** 叠加时把两侧舞台设成同一显示尺寸。
- *  否则原图和成品分辨率不一样时（本项目里 819 vs 946 都有），两张图大小不同、根本对不上。
- *  统一按成品(B)的尺寸画；圈选坐标是按比例存的，缩放不影响。 */
+/** 叠加时把两侧都缩放到同一个视口尺寸（取两边能完整显示的最大公共尺寸）。
+ *  原图和成品分辨率不一样时（比如 819 vs 946），如果直接按某一侧的尺寸画，
+ *  另一侧会显示不全或一大一小，左右对比就对不上。
+ *  统一按「两边都装得下」的尺寸等比缩放，圈选坐标是按比例存的，缩放不影响。 */
 function normalizeOverlayBoxes() {
   if (!S.overlay.on) return;
   const imgA = $('#imgA'), imgB = $('#imgB');
-  const w = imgB.naturalWidth || imgA.naturalWidth;
-  const h = imgB.naturalHeight || imgA.naturalHeight;
-  if (!w || !h) return;
-  stageBox('a', w, h);
-  stageBox('b', w, h);
+  const na = { w: imgA.naturalWidth || 0, h: imgA.naturalHeight || 0 };
+  const nb = { w: imgB.naturalWidth || 0, h: imgB.naturalHeight || 0 };
+  if (!na.w || !nb.w) return;
+  // 用两边里较小的那个"视口高度"，宽度按比例算，保证两边都能完整显示
+  const h = Math.max(na.h, nb.h);
+  const wa = Math.round(na.w * h / na.h);
+  const wb = Math.round(nb.w * h / nb.h);
+  stageBox('a', wa, h);
+  stageBox('b', wb, h);
 }
 
 function setOverlayMode(on) {
@@ -821,15 +916,32 @@ function setOverlayMode(on) {
       return;
     }
     if (S.annotating) toggleAnnotate();
-    $('#ovClip').appendChild($('#stageA'));
+    // 先把 #stageB 放进 #viewportO，再把 #ovClip（装源A）append 到 #viewportO 末尾。
+    // #stageB 有 transform 是独立 stacking context，DOM 顺序决定 z 序；
+    // 让 #ovClip 排在 #stageB 后面，左半边的源A 才不会被源B 整屏盖住。
     $('#viewportO').appendChild($('#stageB'));
+    $('#ovClip').appendChild($('#stageA'));
+    $('#viewportO').appendChild($('#ovClip'));
     panes.classList.add('overlay-mode');
     // HTML 里给 overlayPane 写了内联 display:none，内联样式优先级高于类选择器，
     // 所以这里必须显式切换，不能只靠 CSS 规则。
     overlayPane.style.display = 'flex';
     S.overlay.on = true;
+    S.overlay.mode = S.overlay.mode || 'slider';
+    S.overlay.alpha = S.overlay.alpha === undefined ? 0.5 : S.overlay.alpha;
+    // 等比缩放到同一视口尺寸，保证左右对得上
     normalizeOverlayBoxes();
+    // 叠加模式默认滑块对比，把分界放中间
+    S.overlay.divider = 50;
+    applyOverlay();
   } else {
+    // 退出时把 #ovClip 放回 #viewportO 里的原位（在 #ovLabelL 前面），
+    // 免得下次进入叠加时它还在最后、又把源A 盖住
+    const viewportO = $('#viewportO');
+    const ovClip = $('#ovClip');
+    if (ovClip && ovClip.parentElement === viewportO) {
+      viewportO.insertBefore(ovClip, $('#ovLabelL'));
+    }
     $('#viewportA').appendChild($('#stageA'));
     $('#viewportB').appendChild($('#stageB'));
     panes.classList.remove('overlay-mode');
@@ -852,16 +964,37 @@ function setOverlayMode(on) {
 
 function applyOverlay() {
   if (!S.overlay.on) return;
-  const divider = S.overlay.divider;
-  $('#ovClip').style.clipPath = 'inset(0 ' + (100 - divider) + '% 0 0)';
-  $('#ovDivider').style.left = divider + '%';
-  $('#viewportO').classList.toggle('blend', !!S.overlay.blend);
-  $('#btnBlend').classList.toggle('on', !!S.overlay.blend);
+  const mode = S.overlay.mode || 'slider';
+  const vp = $('#viewportO');
+  vp.classList.toggle('blend', mode === 'blend');
+  if (mode === 'slider') {
+    const divider = S.overlay.divider;
+    $('#ovClip').style.clipPath = 'inset(0 ' + (100 - divider) + '% 0 0)';
+    $('#ovDivider').style.left = divider + '%';
+  } else {
+    // 半透明叠加：源B 整体盖在源A 上，透明度由滑块控制
+    // 先把滑块模式的 clip-path 清掉，不然源A 只剩左半边
+    $('#ovClip').style.clipPath = '';
+    const alpha = clamp(S.overlay.alpha === undefined ? 0.5 : S.overlay.alpha, 0, 1);
+    vp.style.setProperty('--blend-alpha', alpha);
+    $('#blendAlpha').value = Math.round(alpha * 100);
+    $('#blendAlphaVal').textContent = Math.round(alpha * 100) + '%';
+  }
+  $$('#overlayModeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $('#overlayHint').textContent = mode === 'slider'
+    ? '拖动中间竖线分界；按住空格键临时看全幅源A'
+    : '拖动下方滑块改变源B 的透明度；按住空格键临时只看源A';
 }
 
 function blinkOverlay(on) {
   if (!S.overlay.on) return;
-  $('#viewportO').classList.toggle('blink', on);
+  const vp = $('#viewportO');
+  if (S.overlay.mode === 'blend') {
+    // 半透明模式下按住空格 = 暂时把源B 透明度拉到 0，只看源A
+    vp.classList.toggle('blink-hide-b', on);
+  } else {
+    vp.classList.toggle('blink', on);
+  }
 }
 
 function bindOverlayViewport() {
@@ -870,7 +1003,7 @@ function bindOverlayViewport() {
 
   vp.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest('#ovDivider')) return;   // 拖分隔线由它自己的 handler 处理
+    if (e.target.closest('#ovDivider, .blend-slider')) return;   // 分隔线和透明度滑块有自己的交互
     panning = true;
     startX = e.clientX; startY = e.clientY;
     vp.classList.add('dragging');
@@ -1008,7 +1141,7 @@ function renderAnnotList() {
   const list = (S.draft && S.draft.annotations) || [];
   $('#annotCount').textContent = list.length ? '（' + list.length + ' 处）' : '';
   $('#annotHint').innerHTML = S.draft
-    ? '画框：点工具栏「✏️ 圈图」或按 R，然后在图上拖拽。框内文字在下面填写，会自动保存。'
+    ? '画框：点工具栏「圈图」或按 R，然后在图上拖拽。框内文字在下面填写，会自动保存。'
     : '';
 
   const ul = $('#annotList');
@@ -1027,14 +1160,17 @@ function renderAnnotList() {
       'value="' + esc(an.note || '') + '" style="width:100%;margin-bottom:3px">' +
       '<div class="sub">' + esc(sideName) + ' · ' + esc(pos) + '</div>' +
       '</div>' +
-      '<span class="del" data-annot-del="' + i + '" title="删除">✕</span></li>';
+      '<span class="del" data-annot-del="' + i + '" title="删除">' + Icons.get('x', 12) + '</span></li>';
   }).join('');
 
   if (S.annotFocus >= 0) {
     const input = ul.querySelector('[data-annot-note="' + S.annotFocus + '"]');
-    if (input && document.activeElement !== input && S.annotFocusPending) {
-      input.focus();
+    if (input && S.annotFocusPending) {
       S.annotFocusPending = false;
+      // addAnnotation 里已经把侧栏的 transition 暂时禁用并强制可见，
+      // 这里同步 focus 即可生效；不再需要 setTimeout/rAF 等待动画。
+      input.focus();
+      input.select();
     }
   }
 }
@@ -1045,6 +1181,21 @@ function addAnnotation(side, box) {
   S.annotFocusPending = true;
   S.draft.annotations.push({ side: side, x: box.x, y: box.y, w: box.w, h: box.h, note: '', tag: '' });
   drawAnnotations();
+  // 先展开侧栏，再渲染列表并聚焦——visibility:hidden 时 focus 不生效。
+  // 侧栏有 180ms 的 transform/visibility 过渡，圈选后要立即可输入，
+  // 因此打开时先禁用 transition 让它立刻可见，focus 完成后再恢复过渡，
+  // 避免「focus 时元素还 visibility:hidden → focus 静默失败」。
+  const panel = $('#sidePanel');
+  const needOpen = !panel.classList.contains('open');
+  if (needOpen) {
+    S.annotAutoOpened = true;
+    const origTransition = panel.style.transition;
+    panel.style.transition = 'none';
+    toggleSidePanel(true);
+    // 强制 reflow，让 transition:none 立即生效
+    void panel.offsetHeight;
+    panel.style.transition = origTransition;
+  }
   renderAnnotList();
   flush();
 }
@@ -1192,7 +1343,7 @@ function renderWall() {
     if (rec.x) badges.push('<span class="badge stale" style="left:auto;right:4px">源已更新</span>');
     const annotCount = rec.c || 0;
     const tagText = (rec.t && rec.t.length ? rec.t[0] + (rec.t.length > 1 ? '+' + (rec.t.length - 1) : '') : '')
-      + (annotCount ? ' ⭕' + annotCount : '');
+      + (annotCount ? ' ·' + annotCount + '处' : '');
 
     return '<div class="' + cls.join(' ') + '" data-pos="' + (start + i) + '" title="' + esc(it.id) +
       (rec.x ? '（源文件在你审批后被改过）' : '') + '">' +
@@ -1200,7 +1351,7 @@ function renderWall() {
       (status ? '' : '<span class="dot-new"></span>') +
       '<div class="check' + (S.selectMode ? ' show' : '') + '">' + (S.selected.has(it.key) ? '✓' : '') + '</div>' +
       (isImage && !S.selectMode
-        ? '<div class="quick-annot" data-quick-annot="' + (start + i) + '" title="直接进圈注模式">✏️</div>' : '') +
+        ? '<div class="quick-annot" data-quick-annot="' + (start + i) + '" title="直接进圈注模式">' + Icons.get('pencil', 14) + '</div>' : '') +
       badges.join('') +
       '<div class="caption"><span class="cid mono">' + esc(it.id) + '</span>' +
       (tagText ? '<span class="tags">' + esc(tagText) + '</span>' : '') + '</div>' +
@@ -1322,9 +1473,18 @@ function openBatchModal(status, mustSelect) {
   const target = batchTarget();
   if (!target.keys.length) { toast('没有可操作的素材', { error: true }); return; }
   const label = STATUS_CN[status] || '未审';
-  $('#batchTitle').textContent = '批量标记为「' + label + '」';
-  let body = '<div>将对 <b>' + target.keys.length + '</b> 条素材（' + esc(target.desc) + '）执行标记。</div>' +
-    '<div class="warn" style="margin-top:8px">此操作会覆盖这些素材原有的审批状态。</div>';
+  let body;
+  if (status === '') {
+    // 清除审批结果：文案要说清楚会清空什么、还能不能找回
+    $('#batchTitle').textContent = '清除审批结果';
+    body = '<div>将把 <b>' + target.keys.length + '</b> 条素材（' + esc(target.desc) + '）还原为「未审」。</div>' +
+      '<div class="warn" style="margin-top:8px">这些素材当前的通过/打回/存疑结论、标签、备注和圈选都会被清空。<br>' +
+      '原记录仍保留在 history 流水里，确定后 9 秒内可点 toast 上的「撤销」恢复。</div>';
+  } else {
+    $('#batchTitle').textContent = '批量标记为「' + label + '」';
+    body = '<div>将对 <b>' + target.keys.length + '</b> 条素材（' + esc(target.desc) + '）执行标记。</div>' +
+      '<div class="warn" style="margin-top:8px">此操作会覆盖这些素材原有的审批状态。</div>';
+  }
   if (status === 'reject' || status === 'flag') {
     const templates = S.cfg.templates || [];
     if (templates.length) {
@@ -1375,9 +1535,35 @@ async function runBatch() {
       if (tags.length) {
         rec.t = (rec.t || []).filter((t) => tags.indexOf(t) < 0).concat(tags);
       }
+      // 批量清除审批（status === ''）时，本地缓存的标签/圈选数也要清零，
+      // 不然缩略图角标和详情页的圈选列表会残留旧数据
+      if (pending.status === '') {
+        rec.t = [];
+        rec.n = 0;
+        rec.c = 0;
+      }
       S.statuses[k] = rec;
     });
     S.selected.clear();
+    if (S.selectMode) {
+      // 批量后把多选模式也收掉，避免"已清除的框还亮着"的错觉
+      S.selectMode = false;
+      $('#wallSelectMode').classList.remove('on');
+    }
+    // 当前正在详情的这条如果在批量清除范围内，把 draft 一起清空，
+    // 不然画布上的圈选框和侧栏的圈选列表会残留
+    if (pending.status === '' && S.cur && keys.indexOf(S.cur.key) >= 0 && S.draft) {
+      S.draft = { status: '', tags: [], note: '', annotations: [] };
+      S.annotFocus = -1;
+      S.lastNote = '';
+      paintDraftControls();
+      renderAnnotList();
+      drawAnnotations();
+    }
+    // 批量改动会让服务端的记录变化，但 getItem 走的是 itemCache 缓存。
+    // 把受影响 key 的缓存清掉，下次 renderDetail 才会拿到服务端最新数据，
+    // 不然已清除的圈选/标签会从缓存里"复活"
+    keys.forEach((k) => S.itemCache.delete(k));
     renderAll();
     toast('已把 ' + data.changed + ' 条标记为「' + (STATUS_CN[pending.status] || '未审') + '」', {
       duration: 9000, actionLabel: '撤销',
@@ -1513,11 +1699,38 @@ function bindUI() {
     if (e.target.closest('#btnReReview')) clearCurrentResult();
   });
 
+  // 主题切换
+  $('#btnTheme').addEventListener('click', cycleTheme);
+
+  // 侧栏抽屉（默认收起，Tab 或这个按钮展开）
+  $('#btnSidePanel').addEventListener('click', () => toggleSidePanel());
+  $('#btnSideClose').addEventListener('click', () => toggleSidePanel(false));
+  toggleSidePanel(false);
+
+  // 模型 3D 控制
+  $('#btnModelSync').addEventListener('click', () => {
+    if (!window.ModelPreview) return;
+    const on = !document.getElementById('btnModelSync').classList.contains('on');
+    window.ModelPreview.setModelSync(on);
+    document.getElementById('btnModelSync').classList.toggle('on', on);
+  });
+  $('#btnModelReset').addEventListener('click', () => {
+    if (window.ModelPreview) window.ModelPreview.resetModelView();
+  });
+
   // 叠加对比
   $('#btnOverlay').addEventListener('click', () => setOverlayMode(!S.overlay.on));
   $('#btnOverlayOff').addEventListener('click', () => setOverlayMode(false));
-  $('#btnBlend').addEventListener('click', () => {
-    S.overlay.blend = !S.overlay.blend;
+  // 两种模式切换：滑块对比 / 半透明叠加
+  $$('#overlayModeSeg button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      S.overlay.mode = btn.dataset.mode;
+      applyOverlay();
+    });
+  });
+  // 半透明模式的透明度滑块
+  $('#blendAlpha').addEventListener('input', (e) => {
+    S.overlay.alpha = clamp(Number(e.target.value) / 100, 0, 1);
     applyOverlay();
   });
   bindOverlayViewport();
@@ -1695,6 +1908,15 @@ function bindUI() {
       scheduleNoteSave();
     }
   });
+  // 圈选后自动展开的侧栏，输入完（回车或点走）自动收起。
+  // 用捕获阶段 blur 处理「点走」；回车在 onKeyDown 的 typing 分支里处理。
+  document.addEventListener('blur', (e) => {
+    if (!e.target || !e.target.classList || !e.target.classList.contains('annot-note')) return;
+    if (S.annotAutoOpened) {
+      S.annotAutoOpened = false;
+      toggleSidePanel(false);
+    }
+  }, true);
   $('#overlayA').addEventListener('click', (e) => {
     const el = e.target.closest('[data-annot]');
     if (el) focusAnnotation(Number(el.dataset.annot));
@@ -1866,7 +2088,8 @@ function bindUI() {
   });
 
   // 键盘
-  window.addEventListener('keydown', onKeyDown);
+  // 捕获阶段处理：输入框里的按键先被 typing 拦住，不会被冒泡的快捷键判断抢走
+  window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('keyup', onKeyUp);
 
   // 画布/窗口尺寸变化时，只要用户没手动缩放过，就重新适应窗口
@@ -1918,6 +2141,17 @@ function onWallClick(e) {
   gotoWallPageFor(pos);
   setView('detail');
   S.gotoWallScroll = true;
+}
+
+/** 侧栏抽屉：单张对照视图下默认收起，Tab 键或命令栏按钮展开。 */
+function toggleSidePanel(force) {
+  const panel = $('#sidePanel');
+  const open = force !== undefined ? force : !panel.classList.contains('open');
+  panel.classList.toggle('open', open);
+  const btn = $('#btnSidePanel');
+  if (btn) btn.classList.toggle('on', open);
+  // 抽屉改变布局后重新适应画布
+  if (S.set && S.set.type === 'image') tryFit();
 }
 
 function toggleAnnotate() {
@@ -2036,8 +2270,17 @@ function clearDraftRect() {
 /* ------------------------------------------------------------ 键盘 */
 
 function onKeyDown(e) {
+  // 焦点在输入框里时，所有字母/数字键都交给输入框，不触发工具快捷键。
+  // 用 e.target 兜底：真实打字时 target 就是 input；合成事件 target 是 window 时
+  // 再读 document.activeElement（dispatchEvent 可能让 activeElement 在传播中被改掉）。
   const tag = (e.target.tagName || '').toLowerCase();
-  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+  const active = document.activeElement;
+  const activeIsTextInput = !!(active && (
+    active.tagName === 'INPUT' || active.tagName === 'TEXTAREA'
+    || active.tagName === 'SELECT' || active.isContentEditable
+  ));
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable
+    || activeIsTextInput;
 
   // 按住空格：叠加模式下临时看全幅原图
   if (e.key === ' ' || e.code === 'Space') {
@@ -2055,7 +2298,14 @@ function onKeyDown(e) {
     return;
   }
   if (typing) {
-    if (e.key === 'Enter' && e.target.id === 'noteInput') e.target.blur();
+    if (e.key === 'Enter' && (e.target.id === 'noteInput' || e.target.classList.contains('annot-note'))) {
+      e.target.blur();
+      // 圈选后自动展开的侧栏，按回车直接收起（不用等 blur 冒泡）
+      if (e.target.classList.contains('annot-note') && S.annotAutoOpened) {
+        S.annotAutoOpened = false;
+        toggleSidePanel(false);
+      }
+    }
     return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -2086,6 +2336,11 @@ function onKeyDown(e) {
   }
   if (hit('sync')) { e.preventDefault(); $('#btnSync').click(); return; }
   if (hit('focusSearch')) { e.preventDefault(); $('#searchBox').focus(); $('#searchBox').select(); return; }
+  if (e.key === 'Tab' && !typing && !e.shiftKey && S.view === 'detail') {
+    e.preventDefault();
+    toggleSidePanel();
+    return;
+  }
 
   // 问题标签快捷键：按一下就等于「打回 + 贴这个标签」，全键盘完成一次打回
   const tagKeys = S.cfg.tagShortcuts || [];

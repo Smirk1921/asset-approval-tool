@@ -108,7 +108,7 @@ def detail_item(material, item: dict, record: dict, *, is_stale: bool,
         "source_labels": {"a": material.spec["a"]["label"] or "源A",
                           "b": material.spec["b"]["label"] or "源B"},
     })
-    if material.type == "image":
+    if material.type in ("image", "model"):
         payload["files"] = {
             "a": (item["a"].get("path") or "") or None,
             "b": (item["b"].get("path") or "") or None,

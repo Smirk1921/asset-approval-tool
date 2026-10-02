@@ -181,7 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="拼好后总宽上限，超出整体等比缩小（默认 2048）")
     p_pair.add_argument("--max-height", dest="max_height", type=int)
     p_pair.add_argument("--gap", type=int, default=8, help="两图间隔像素（默认 8）")
-    p_pair.add_argument("--labels", help="自定义标签，逗号分隔，如 英文原图,中文成品")
+    p_pair.add_argument("--labels", help="自定义标签，逗号分隔，如 源A,源B")
     p_pair.add_argument("--no-label", dest="no_label", action="store_true", help="不画标签")
     p_pair.add_argument("--no-annotations", dest="no_annotations", action="store_true",
                         help="不把已有圈注画上去")

@@ -242,7 +242,7 @@ python agent.py review --set S --id I --template text_layout --note "..."
 ### 关于 `get_item_images`
 
 返回的是 MCP 的 image content 块（JPEG 预览，base64）。`side: "both"` 会一次给
-**英文原图和中文成品两张**，视觉模型可以直接对照找问题。预览长边默认 900 像素，
+**源A 和 源B 两张对照图**，视觉模型可以直接对照找问题。预览长边默认 900 像素，
 按需调 `max_size`（越大越清晰也越费 token）。原始分辨率图片的路径在同一次返回的
 文本块里，需要精修时按路径取。
 
@@ -305,10 +305,10 @@ curl -s -X POST http://127.0.0.1:8765/api/agent/review \
   "sets": [
     {
       "id": "demo_cards",
-      "name": "演示·单卡对照（英文原图 ↔ 中文成品）",
+      "name": "演示·单卡对照（源A ↔ 源B）",
       "type": "image",
       "note": "素材集说明",
-      "source_a": "英文原图", "source_b": "中文成品",
+      "source_a": "源A", "source_b": "源B",
       "count": 8, "reviewed": 3, "pass": 2, "reject": 1, "flag": 0,
       "unreviewed": 5, "stale": 0, "round": 1,
       "error": null
@@ -346,12 +346,12 @@ curl -s -X POST http://127.0.0.1:8765/api/agent/review \
   "annotation_list": [
     { "x": 0.09, "y": 0.55, "w": 0.82, "h": 0.28, "side": "b", "note": "正文溢出到框外", "tag": "" }
   ],
-  "source_labels": { "a": "英文原图", "b": "中文成品" },
+  "source_labels": { "a": "源A", "b": "源B" },
   "files": { "a": ".../demo/original/102_front.png", "b": ".../demo/rendered/102_front.png" }
 }
 ```
 
-文本素材集则是 `"texts": { "a": "英文原文…", "b": "中文译文…" }` 而不是 `files`。
+文本素材集则是 `"texts": { "a": "源A 文本…", "b": "源B 文本…" }` 而不是 `files`。
 
 ### `batch` 返回
 

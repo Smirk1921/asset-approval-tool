@@ -1,13 +1,22 @@
 # 图包审批工具 · Asset Approval Tool
 
-本地跑的**素材对照审批工具**：左边原图、右边成品并排看，一键标记 ✅通过 / ❌打回 / ⚠️存疑，
+本地跑的**素材对照审批工具**：左边源A、右边源B 并排看，一键标记 ✅通过 / ❌打回 / ⚠️存疑，
 打回时点问题标签、在图上圈出问题位置，结果实时写盘、可导出 JSON + CSV 给下游程序读。
 
-> **English**: A local, offline web tool for reviewing large batches of visual/text assets
-> side by side (original vs. localized output). Mark pass/reject/unsure, tag the problem,
-> draw boxes on the image, filter and batch-operate, export machine-readable results.
-> Ships with a demo dataset — clone and run, no configuration needed. It also speaks
-> **MCP** and has a **CLI**, so AI agents can drive the review loop directly.
+**最初为 [TTS](https://www.tabletopsimulator.com/)（桌游模拟器）图包的开发与本地化审批而设计**
+——比如「英文原版图包 ↔ 中文本地化成品」「上一版渲染 ↔ 新一版渲染」的对照验收——
+但工具本身与语言、与项目无关，**任何需要两组素材并排审批的场景都能用**：
+游戏贴图校对、UI 切图验收、设计稿版本对比、文档翻译审定、3D 模型对照，等等。
+图片、文本、3D 模型（OBJ）三种素材类型都支持。
+
+> **English**: A local, offline web tool for reviewing two sets of assets side by side
+> (source A vs. source B — any pair you configure). Originally built for
+> **Tabletop Simulator (TTS) mod/asset-pack development and localization** review,
+> but works for any two-set comparison: game textures, UI slices, design iterations,
+> translated documents, OBJ models. Mark pass/reject/unsure, tag problems, draw boxes
+> on images, batch-operate, export machine-readable results. Ships with a demo
+> dataset — clone and run. Speaks **MCP** and has a **CLI** so AI agents can drive
+> the review loop directly.
 
 - 纯本地运行，**不联网**，不需要数据库
 - 克隆下来直接跑，自带合成演示素材
@@ -56,9 +65,10 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 
 ### 单张对照
 
-图片素材：左边**源A**（原图）、右边**源B**（成品），同步缩放平移。滚轮缩放、按住拖拽平移、
+图片素材：左边**源A**、右边**源B**，同步缩放平移。滚轮缩放、按住拖拽平移、
 双击在「适应窗口 / 原始大小」之间切换。文本素材：左右分栏显示原文 / 译文，
-可切上下分栏、调字号、开同步滚动。
+可切上下分栏、调字号、开同步滚动。3D 模型素材（OBJ）：左右各一个 WebGL 视口，
+拖拽旋转、滚轮缩放、Shift+拖拽平移，可一键同步两侧相机。
 
 ### 一键标记 + 问题标签
 
@@ -69,13 +79,18 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 
 ### 对照看图
 
-**叠加对比**（按 `X`）：把原图和成品叠在同一张上，**拖中间那条竖线**决定左右各露多少，
-一眼看出哪里多字、少字、错位。按住**空格**临时看全幅原图；点「半透明重叠」可以让成品
-半透明盖在原图上。两侧分辨率不同时会自动统一显示尺寸，保证逐像素对得上。
+**叠加对比**（按 `X`）：把两侧素材叠在同一张上，有两种模式：
+
+- **滑块对比**：拖中间那条竖线决定左右各露多少，一眼看出哪里多字、少字、错位。
+- **半透明叠加**：源B 以可调透明度盖在源A 上，滑块控制 0~100%。
+
+按住**空格**临时看全幅源A。两侧分辨率不同时会自动统一显示尺寸，保证逐像素对得上。
 
 ### 圈图标注
 
-点 **✏️ 圈图**（或按 `R`），在图上拖拽画框，右侧写这条问题的说明。可以圈多处。
+点 **✏️ 圈图**（或按 `R`），在图上拖拽画框，**右侧栏自动弹出并定位到这条圈选的输入框**，
+直接打字就行；按 Enter 或失焦后侧栏自动收回。可以圈多处。
+
 在缩略图墙上把鼠标移到某张卡上，右下角出现 ✏️，点它**直接进这张的圈注模式**；
 画完按 `Esc` 退出会自动回到墙上刚才那张。
 
@@ -98,6 +113,9 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 
 对**当前筛选结果**一键标记，**按钮上直接写着会作用到多少条**，执行前弹确认框，
 执行后提示条里有 **撤销**。在缩略图墙点 **多选** 可以只作用于勾选的那些。
+
+「清除审批…」把所选素材还原到未审，**状态、标签、备注、圈选一并清空**（二次确认，
+9 秒内可撤销）。批量清除是原子操作：要么全部生效、要么全部不生效。
 
 ### 集合与批次
 
@@ -124,6 +142,7 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 
 > 想让它全自动（源一变就把结论清成未审）可以在配置里设 `"auto_reset_stale": true`。
 > 默认是关的：静默清掉已经下过的结论风险太大，工具默认只提示、由你决定。
+
 没被改过的素材结果照旧保留，不会被误清。图片 URL 里也带了同一个指纹，
 所以浏览器必定拉新图，不用 Ctrl+Shift+R。文本素材集同理：改了译文 JSON，刷新就能看到。
 
@@ -160,7 +179,7 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 | `V` / `G` | 单张对照 / 缩略图墙 |
 | `R` / `X` | 圈图模式 / 叠加对比 |
 | `F` / `Z` / `S` | 适应窗口 / 原始大小 / 左右同步 |
-| `空格`（叠加模式下） | 临时看全幅原图 |
+| `空格`（叠加模式下） | 临时看全幅源A |
 | `/` | 跳到搜索框 |
 | `Ctrl+Z` / `Esc` | 撤销上一步 / 退出圈图或关闭弹窗 |
 
@@ -171,9 +190,24 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 
 ## 四、给 AI agent 用
 
-这个工具不只是给人点的——agent 也能直接驱动它，形成「agent 看素材 → 判断 → 写结论」的闭环。
+这个工具不只是给人点的——agent 也能直接驱动它，形成「agent 看素材 → 判断 → 写结论 → 给人复核」
+的闭环。典型的用法是让视觉模型先做一轮**机器预审**，人只复核拿不准的那些；或者把已审过的
+批次重渲后，让 agent 只针对"源文件变了"的那些重新审。
 
-**首选 MCP**，工具直接出现在 agent 的工具列表里：
+agent 有三条通路可以选，**语义完全一致**：
+
+| 通路 | 什么时候用 |
+|---|---|
+| **MCP**（`mcp_server.py`） | **首选**。工具直接出现在 agent 的工具列表里，图片可以作为 MCP image content 块返回给模型直接看 |
+| **CLI**（`agent.py`） | 没有 MCP 宿主时；每次调用输出一个 JSON，适合 shell 脚本和 workflow 编排 |
+| **HTTP**（`app.py` 起的服务） | 用户正在网页上审批时，走这条和用户共用同一份状态，互不覆盖 |
+
+**服务在跑就走 HTTP、没跑就直接读写文件**——这条规则 CLI 和 MCP 都自动生效，不用手动选。
+原因：网页版把结果缓存在内存里，如果在服务运行时直接改文件，改动会被覆盖。
+
+### 4.1 MCP 接入（推荐）
+
+在 agent 宿主（Claude Code、ZCode 等）的配置里加：
 
 ```json
 {
@@ -186,50 +220,120 @@ python app.py --probe                    # 只探测该端口有没有本工具�
 }
 ```
 
-提供 14 个工具：`approval_status`、`list_items`、`get_item`、`get_item_images`、
-`review_item`、`batch_review`、`export_results`、`clear_stale_results`、`start_new_round`、
-`list_previous_round_rejects`、`export_crops`、`lookup_item`、`compare_sets`、`derive_set`。
+宿主启动后，14 个工具直接可用：
 
-其中 **`get_item_images` 会把图片本身返回给 agent**（MCP image content 块）。
-**`stitch=true` 时它把原图和成品拼成一张对照图**（左原图、右成品，已按同一尺寸对齐）——
-模型一次只能吃一张图时这是唯一靠谱的做法，能一次吃多张的模型也建议用它：
-靠文字描述去对齐两张图，图标位置、分段间距、字体差异都会丢。
+| 工具 | 用途 |
+|---|---|
+| `approval_status` | 总览所有素材集：条数、各状态数量、过期条数、当前轮次。**开工前必调** |
+| `list_items` | 列素材，可按状态 / 标签 / 分组 / 搜索 / 过期 / 有圈选 / 有备注等组合筛 |
+| `get_item` | 单条素材的完整信息（图片路径或文本正文 + 已有审批结果 + 圈选明细） |
+| `get_item_images` | **把图片本身返回给模型看**（MCP image content 块）。`stitch=true` 拼成左右对照图 |
+| `review_item` | 给一条素材写审批结果（状态 + 标签 + 备注 + 圈选） |
+| `batch_review` | 一次写回多条，**全部校验通过才落盘**（原子写，不会写一半） |
+| `export_results` | 导出 JSON / CSV / 圈注明细 / 修正建议 |
+| `clear_stale_results` | 清掉"源文件已变"的过期结果，让它们回到未审 |
+| `start_new_round` | 归档本轮结果并开始新一轮（**慎用**：会清空当前批次） |
+| `list_previous_round_rejects` | 上一轮所有打回的素材 id，用于优先复审 |
+| `export_crops` | 把每处圈选从原图裁出，打包成 ZIP（下游抠图素材） |
+| `lookup_item` | 跨集合查一个素材 id 的所有历史结论（"这张卡上一轮是什么结论？"） |
+| `compare_sets` | 对比两个集合里同一批素材的结论差异（"上轮打回的这轮修好了没？"） |
+| `derive_set` | 从当前集合派生出隔离的新集合（重渲后的批次单独审，不污染旧结果） |
 
-**命令行**同样可用，每次调用输出一个 JSON：
+**视觉模型看图强烈推荐 `get_item_images(stitch=true)`**：它把源A 和源B 拼成**一张**对照图
+（左源A、右源B，已按同一尺寸对齐），模型一次性吃下。原因：
+
+- 很多模型一次只能吃一张图，得靠两次调用 + 文字描述去对齐——图标位置、分段间距、
+  字体差异这些信息靠文字根本描述不清。
+- 即使模型能吃多张，给它一张已经对齐好的对照图也比给两张原图准——否则它得自己
+  在内部对齐，出错率高。
+
+`stitch_layout: "vertical"` 可改成上下拼接；`draw_annotations: true` 会把已有圈选框
+画到拼图上（用于"上一轮圈出的问题现在修没修"的复核）。
+
+### 4.2 CLI 用法
+
+`agent.py` 是命令行版本，每次调用输出**一个** JSON，适合 shell 脚本和 workflow 编排：
 
 ```bash
+# 总览 / 列表 / 详情
 python agent.py status
 python agent.py items --set demo_cards --status unreviewed --limit 20
 python agent.py item  --set demo_cards --id 102_front.png
+
+# 单条审批：状态 + 标签 + 备注 + 圈选一次给全
 python agent.py review --set demo_cards --id 102_front.png --status 打回 \
     --tags 文字溢出 --note "正文超出文本框" \
     --annotate "0.09,0.55,0.82,0.28,b,正文溢出到框外"
+
+# 拼对照图（agent 自己拿去送视觉模型）
 python agent.py image-pair --set demo_cards --id 102_front.png --out pair.png
-python agent.py review-batch --set demo_cards --file reviews.json --dry-run
+python agent.py image-pair --set demo_cards --filter-status unreviewed --out-dir pairs/
+
+# 批量写回（原子：全部校验通过才写）
+python agent.py review-batch --set demo_cards --file reviews.json --dry-run  # 先预演
+python agent.py review-batch --set demo_cards --file reviews.json            # 真跑
+
+# 批量改状态（必须显式指定范围，防止"都通过"刷掉整个素材集）
 python agent.py batch --set demo_cards --filter-status unreviewed --status pass --dry-run
+python agent.py batch --set demo_cards --filter-status all --status "" --yes  # 清空所有
+
+# 导出
+python agent.py export --set demo_cards --format json --out 结果.json
 python agent.py export --set demo_cards --format annotations --only problem --out 问题清单.csv
+python agent.py export --set demo_cards --format advice --out 修正建议.json
 python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
+
+# 集合管理
+python agent.py derive-set --from-set demo_cards --new-id demo_v2 \
+    --only-ids 101_front.png,103_front.png
+python agent.py drop-set --set demo_v2 --yes
+python agent.py clear-stale --set demo_cards
+python agent.py new-round --set demo_cards --yes
+python agent.py prev-round --set demo_cards
+
+# 跨集合查询
+python agent.py lookup --set demo_v2 --id 101_front.png
+python agent.py compare --set demo_cards --other demo_v2
+
+# 列出预设的审批模板与标签
+python agent.py templates
 ```
 
-几条为 agent 工作流准备的命令：`image-pair`（拼对照图，可批量）、`review-batch`
-（一次写回多条，全部校验通过才写）、`derive-set`（派生隔离集合）、`export-crops`、
-`lookup` / `compare`（跨集合查同一张卡的历史结论）。
+每条命令的退出码：`0` 成功，`1` 业务错误（JSON 里有 `error` 字段说明怎么改），
+`2` 参数错误。
 
-几条为 agent 专门做的设计：
+### 4.3 为 agent 做的专门设计
 
-- **自动选路**：服务在跑就走 HTTP（和网页版共用同一份状态），没跑就直接读写文件。
-  避免「agent 改了文件、被服务下一次保存覆盖」。服务跑在非默认端口时会给出提示；
-  真要用 `--offline` 直连写而被拦下来，说明服务正在跑，加 `--force` 才能强行覆盖。
-- **标签纠错**：写成"图标丢失"这种同义词会被拦下并提示"是不是要写『图标缺失』"，
-  避免标签写花了之后筛不出来。
-- **批量必须给范围**：`batch` 不给 `ids` 也不给筛选条件会直接报错，
-  想作用于全部要显式写 `filter_status="all"`。防的是「一句都通过刷掉整个素材集」。
-- **`dry_run` 预演**：先看会命中哪些，再决定执行。
-- **中英文都认**：`pass` / `通过` 等价，`unreviewed` / `未审` 等价。
-- **错误可读**：失败时返回 `{"ok": false, "error": "……"}`，直接说明怎么改。
+- **自动选路**：CLI 启动时探测 `data/app.pid`——pid 文件有效且端口能通就走 HTTP，
+  否则直接读写文件。服务跑在非默认端口时会给出提示；真要用 `--offline` 直连写而
+  被拦下来，说明服务正在跑，加 `--force` 才能强行覆盖。
+- **原子批量写**：`batch_review` / `review-batch` 先把所有条目校验完（id 存在、
+  状态合法、标签在预设词表内、坐标在 0~1 内），**全部通过才落盘**；任何一条失败，
+  整个批次不写，返回的 `failures` 数组逐条说明原因。
+- **批量必须给范围**：`batch` 不给 `ids` 也不给筛选条件会直接报错。想作用于全部要
+  显式写 `filter_status="all"`。防的是「一句都通过刷掉整个素材集」。
+- **`dry_run` 预演**：所有写操作都支持 `--dry-run`，先看会命中哪些、共几条，再决定执行。
+- **标签纠错**：写成"图标丢失"这种同义词会被拦下并提示"是不是要写『图标缺失』"
+  （`suggest_tag` 用编辑距离 + 最长公共子序列找最接近的预设词）。避免标签写花了
+  之后筛不出来。
+- **中英文都认**：`pass` / `通过` 等价，`unreviewed` / `未审` 等价。MCP 工具描述
+  也是中文写的，模型直接读懂。
+- **错误可读**：失败时返回 `{"ok": false, "error": "……"}`，直接说明怎么改，
+  不会让 agent 反复试错。
+- **拿不准就 `flag`**：工具的指引（`AGENTS.md`）里明确写了「拿不准就 flag，不要
+  猜着 pass」，因为 pass 意味着"可以发布"，代价比打回大。
+- **只传要改的字段**：`review_item` 没传的字段保持原值，agent 不用担心误清空。
 
-详见 [`AGENTS.md`](AGENTS.md)（给 agent 的操作须知）和
-[`docs/agent-接口.md`](docs/agent-接口.md)（完整接口参考）。
+### 4.4 文档
+
+- [`AGENTS.md`](AGENTS.md) — **给 agent 的操作须知**：三条通路怎么选、标准审批流程、
+  判断与写结论的规矩、安全红线（哪些操作必须二次确认）、迭代渲染时常用的工具组合。
+- [`docs/agent-接口.md`](docs/agent-接口.md) — 完整接口参考：CLI / MCP / HTTP 三套
+  参数和返回结构一一对应。
+- [`docs/agent-工作流示例.md`](docs/agent-工作流示例.md) — 4 个可以直接照抄的完整流程：
+  批量预审回写、派生隔离集、归档新轮、圈选裁剪导出。
+- [`docs/审批结果字段说明.md`](docs/审批结果字段说明.md) — 结果 JSON/CSV 字段含义
+  与 Python 读取示例。
 
 ---
 
@@ -260,10 +364,10 @@ python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
 |---|---|
 | `id` | 唯一标识，也是结果文件名 |
 | `name` | 界面上显示的名字 |
-| `type` | `image` 或 `text` |
+| `type` | `image` / `text` / `model` |
 | `pair` | 配对方式，见下表 |
 | `items_from` | 以哪一侧为准：`b`（只看有成品，推荐）/ `a` / `union` |
-| `a` / `b` | 源A、源B。图片是 `{"root": "目录", "label": "显示名"}`；文本可用 `{"kind":"json","path":"...","fields":[...],"label":"..."}` |
+| `a` / `b` | 源A、源B。图片/模型是 `{"root": "目录", "label": "显示名"}`；文本可用 `{"kind":"json","path":"...","fields":[...],"label":"..."}` |
 | `include` / `exclude` | 文件名通配符，默认排除 `_*`、`.*`、`~*` |
 | `recurse` | 是否递归扫子目录（默认 true） |
 | `id_regex` / `id_template` | 文本素材集里把 JSON 的长键变成好读的 id，如 `卡{card}-槽{row}-{col}` |
@@ -278,8 +382,8 @@ python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
 
 | 值 | 适用 | 说明 |
 |---|---|---|
-| `basename` | 图片、文本文件 | 两个目录里**同名**的文件配成一对，可递归 |
-| `manifest` | 图片 | 清单里每条记录对应一张素材，文件名由 `key_template` 生成 |
+| `basename` | 图片、模型、文本文件 | 两个目录里**同名**的文件配成一对，可递归 |
+| `manifest` | 图片、模型 | 清单里每条记录对应一张素材，文件名由 `key_template` 生成 |
 | `json_key` | 文本 | 源A / 源B 各是一个 JSON，按**顶层键**配对 |
 
 `basename` 例子（原图放扁平目录、成品按类型分子目录，靠文件名对齐）：
@@ -304,6 +408,21 @@ python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
     "fields": ["卡号", "类型", "扩展", "状态", "英文标题"],
     "facets": ["类型", "扩展"]
   }
+}
+```
+
+3D 模型素材（OBJ）的例子：
+
+```json
+{
+  "id": "my_models",
+  "name": "模型对照（白模 ↔ 贴图版）",
+  "type": "model",
+  "pair": "basename",
+  "items_from": "b",
+  "a": { "root": "D:/素材/白模", "label": "白模" },
+  "b": { "root": "D:/素材/贴图版", "label": "贴图版" },
+  "include": ["*.obj"]
 }
 ```
 
@@ -349,7 +468,7 @@ python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
 │   ├── agent_common.py       状态/标签/圈选规范化（两条通路共用）
 │   ├── agent_ext.py          扩展能力：拼接/裁剪/批量写回/派生集合/跨集合查询
 │   └── agent_api.py          操作层：HTTP 与直连两套实现
-├── static/                   前端（原生 JS，无外部依赖）
+├── static/                   前端（原生 JS，含自研 WebGL OBJ 查看器，无外部依赖）
 ├── demo/                     合成演示素材（可重新生成）
 │   └── generate_demo.py
 ├── sets.d/                   派生集合（工具自动生成，可 gitignore）
@@ -394,5 +513,5 @@ python agent.py export-crops --set demo_cards --zip 圈选裁剪.zip
 ## 八、依赖与许可
 
 - Python 3.10+，依赖只有 **Flask** 和 **Pillow**（`pip install -r requirements.txt`）
-- 前端是原生 JS，没有任何外部库，完全离线
+- 前端是原生 JS，3D 模型查看器是自研的 WebGL OBJ 解析器（不依赖 three.js），完全离线
 - 许可：[MIT](LICENSE)

@@ -140,7 +140,7 @@ class ResultStore:
             return snapshot or {}
 
     def save_many(self, item_ids, *, status=None, tags=None) -> int:
-        """批量标记（只改状态/标签，不动备注与圈选）。"""
+        """批量标记（只改状态/标签；status=="" 时视为「还原未审」，连备注和圈选一起清）。"""
         with self._lock:
             changed = 0
             now = _now()
@@ -153,6 +153,12 @@ class ResultStore:
                 if tags is not None:
                     existing = [t for t in record.get("tags", []) if t not in tags]
                     record["tags"] = existing + [str(t) for t in tags if str(t).strip()]
+                # 批量「清除审批」（status==""）的语义是还原到未审，
+                # 备注和圈选也一起清，否则前端再进来会看到旧框"复活"
+                if status == "":
+                    record["tags"] = []
+                    record["note"] = ""
+                    record["annotations"] = []
                 record["reviewed_at"] = now
                 record["round"] = self.round
                 record.setdefault("tags", [])
@@ -422,7 +428,7 @@ class ResultStore:
                 writer.writerow([
                     row["id"], row.get("name", ""), row.get("group", ""),
                     index + 1,
-                    "源A原图" if side == "a" else "源B成品",
+                    "源A" if side == "a" else "源B",
                     ann.get("note") or "",
                     f"{ann.get('x', 0) * 100:.2f}%", f"{ann.get('y', 0) * 100:.2f}%",
                     f"{ann.get('w', 0) * 100:.2f}%", f"{ann.get('h', 0) * 100:.2f}%",

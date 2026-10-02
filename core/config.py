@@ -190,8 +190,8 @@ def _normalize_set(item: dict, index: int, base: Path, seen_ids: set[str]) -> di
         raise ConfigError(f"sets[{index}] 必须是对象")
 
     set_type = str(item.get("type") or "image").strip().lower()
-    if set_type not in ("image", "text"):
-        raise ConfigError(f"sets[{index}].type 只能是 image 或 text，实际是 {set_type!r}")
+    if set_type not in ("image", "text", "model"):
+        raise ConfigError(f"sets[{index}].type 只能是 image / text / model，实际是 {set_type!r}")
 
     set_id = str(item.get("id") or f"set{index + 1}").strip()
     if set_id in seen_ids:
@@ -204,7 +204,7 @@ def _normalize_set(item: dict, index: int, base: Path, seen_ids: set[str]) -> di
     b = _normalize_source(item.get("b"), set_type, base, f"sets[{index}].b")
 
     # pair 规则
-    pair = str(item.get("pair") or ("basename" if set_type == "image" else "json_key")).strip()
+    pair = str(item.get("pair") or ("basename" if set_type in ("image", "model") else "json_key")).strip()
     allowed = ("basename", "manifest", "json_key")
     if pair not in allowed:
         raise ConfigError(f"sets[{index}].pair 只能是 {'/'.join(allowed)}，实际是 {pair!r}")
@@ -213,14 +213,16 @@ def _normalize_set(item: dict, index: int, base: Path, seen_ids: set[str]) -> di
     if pair == "json_key" and set_type != "text":
         raise ConfigError(f"sets[{index}]：pair=json_key 只用于 text 类型素材集")
 
-    include = item.get("include") or (
-        ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.gif"] if set_type == "image"
-        else ["*.txt", "*.md", "*.csv", "*.json"]
-    )
+    _default_include = {
+        "image": ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.gif"],
+        "model": ["*.obj", "*.glb", "*.gltf", "*.stl", "*.fbx"],
+        "text":  ["*.txt", "*.md", "*.csv", "*.json"],
+    }
+    include = item.get("include") or _default_include.get(set_type, _default_include["text"])
     if isinstance(include, str):
         include = [include]
 
-    exclude = item.get("exclude") or (["_*", ".*", "~*"] if set_type == "image" else [])
+    exclude = item.get("exclude") or (["_*", ".*", "~*"] if set_type in ("image", "model") else [])
     if isinstance(exclude, str):
         exclude = [exclude]
 

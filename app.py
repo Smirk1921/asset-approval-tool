@@ -308,8 +308,8 @@ def _resolve_file(material, key: str, side: str):
     if side not in ("a", "b"):
         return None, "side 只能是 a 或 b"
     info = item.get(side) or {}
-    if material.type != "image":
-        return None, "该素材集不是图片类型"
+    if material.type not in ("image", "model"):
+        return None, "该素材集不是图片/模型类型"
     if not info.get("exists"):
         return None, info.get("missing_reason") or "该素材没有这一侧的图片"
     path = Path(info["path"])
@@ -776,8 +776,8 @@ def agent_export():
                 continue
         rows.append({
             "id": item["id"], "name": item["name"], "group": item["group"], "meta": item["meta"],
-            "sourceA": (item["a"].get("path") or "") if material.type == "image" else (item["a"].get("text") or ""),
-            "sourceB": (item["b"].get("path") or "") if material.type == "image" else (item["b"].get("text") or ""),
+            "sourceA": (item["a"].get("path") or "") if material.type in ("image", "model") else (item["a"].get("text") or ""),
+            "sourceB": (item["b"].get("path") or "") if material.type in ("image", "model") else (item["b"].get("text") or ""),
             "sizes": _image_sizes(item) if (material.type == "image" and record.get("annotations")) else {},
             "record": {
                 "status": record.get("status") or "",
@@ -1027,8 +1027,8 @@ def api_export(set_id: str):
             "name": item["name"],
             "group": item["group"],
             "meta": item["meta"],
-            "sourceA": (item["a"].get("path") or "") if material.type == "image" else (item["a"].get("text") or ""),
-            "sourceB": (item["b"].get("path") or "") if material.type == "image" else (item["b"].get("text") or ""),
+            "sourceA": (item["a"].get("path") or "") if material.type in ("image", "model") else (item["a"].get("text") or ""),
+            "sourceB": (item["b"].get("path") or "") if material.type in ("image", "model") else (item["b"].get("text") or ""),
             "sizes": (_image_sizes(item) if material.type == "image" and has_annotations else {}),
             "record": {
                 "status": record.get("status") or "",

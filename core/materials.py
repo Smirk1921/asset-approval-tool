@@ -4,7 +4,7 @@
 支持三种配对方式：
   basename   按文件名配对（可递归扫描；渲染产物分目录存放时用它）
   manifest   按元数据清单配对（清单里每条记录对应一张素材，文件名由模板生成）
-  json_key   按 JSON 顶层键配对（文本素材：英文原文 JSON ↔ 中文译文 JSON）
+  json_key   按 JSON 顶层键配对（文本素材：源A JSON ↔ 源B JSON）
 
 代码中不出现任何具体项目路径，全部来自 config.json。
 """
@@ -108,7 +108,7 @@ def item_version(item: dict, set_type: str) -> str:
       2) 存进审批结果，用来判断「这条结果是不是在我审批之后源文件又被改过」。
     图片以成品（源B）为准，成品缺失时退回原图。
     """
-    if set_type == "image":
+    if set_type in ("image", "model"):
         for side in ("b", "a"):
             path = (item.get(side) or {}).get("path")
             if path:
@@ -483,7 +483,7 @@ class MaterialSet:
             "group": group,
             "meta": extra_meta or {},
         }
-        if self.type == "image":
+        if self.type in ("image", "model"):
             item["a"] = {"exists": bool(a_path), "path": a_path or ""}
             item["b"] = {"exists": bool(b_path), "path": b_path or ""}
             if not a_path:
@@ -557,7 +557,7 @@ class MaterialSet:
         过期提示会自己冒出来，图片 URL 的版本号也变了，浏览器必须重新拉图，
         不用重启工具、也不用 Ctrl+Shift+R。
         """
-        if self.type != "image":
+        if self.type not in ("image", "model"):
             # 文本素材：源是几个 JSON/文本文件，先看它们动没动，动了就整个重建
             stamps = file_stamps(self._text_source_files())
             if stamps == self._source_stamps:
@@ -615,6 +615,18 @@ class MaterialSet:
                 # 文本素材集在缩略图墙里用一段摘录代替缩略图
                 snippet = (item["b"].get("text") or item["a"].get("text") or "").replace("\n", " ")
                 entry["preview"] = snippet[:120]
+            elif self.type == "model":
+                # 模型素材在缩略图墙里用文件名+大小占位（3D 缩略图后期再加）
+                size_text = ""
+                for side in ("b", "a"):
+                    path = (item.get(side) or {}).get("path")
+                    if path:
+                        try:
+                            size_text = f" · {Path(path).stat().st_size // 1024}KB"
+                        except OSError:
+                            pass
+                        break
+                entry["preview"] = (item["name"] or item["id"]) + size_text
             out.append(entry)
         return out
 
