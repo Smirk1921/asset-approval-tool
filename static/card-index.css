@@ -1,0 +1,383 @@
+/* ============================================================
+   索引卡盒 Card Index 主题层（F 方向 · 定稿共识整合版）
+   覆盖在 style.css 之后加载；不改 app.js 逻辑，只换视觉语言。
+   设计源：design/ui-redesign-03/（10 轮独立盲审后的共识整合版）
+   ============================================================ */
+
+:root,
+:root[data-theme="light"] {
+  /* 索引卡盒色板：桌面暖灰 / 盒内衬 / 卡纸 / 墨 / 旧印泥三色 */
+  --desk: #dcd7cd;
+  --box: #efece4;
+  --card: #faf8f2;
+  --ink: #2b2b28;
+  --ink-2: #8a877e;
+  --hairline: #c9c4b8;
+  --c-pass: #4a7d5d;
+  --c-reject: #a63a28;
+  --c-flag: #a8823c;
+  --annot-ink: #a4554c;
+
+  /* 映射到现有变量体系 */
+  --bg-0: var(--desk); --bg-1: var(--card); --bg-2: var(--box); --bg-3: #e6e1d5;
+  --border: var(--hairline); --border-strong: #b5b0a2;
+  --text-1: var(--ink); --text-2: var(--ink-2); --text-3: #a9a498;
+  --accent: var(--ink); --accent-hover: #4a463e; --accent-weak: rgba(43, 43, 40, 0.10);
+  --pass: var(--c-pass); --reject: var(--c-reject); --flag: var(--c-flag); --unreviewed: #b5b0a2;
+  --pass-bg: rgba(74, 125, 93, 0.12); --reject-bg: rgba(166, 58, 40, 0.12); --flag-bg: rgba(168, 130, 60, 0.12);
+  --checker-a: #e9e4d8; --checker-b: var(--box); --checker-bg: var(--box);
+  --stage-line: rgba(43, 43, 40, 0.14);
+  --annot: var(--annot-ink); --annot-side-a: #5b7a8c;
+  --shadow-pop: 0 2px 8px rgba(43, 43, 40, 0.14); --shadow-modal: 0 10px 32px rgba(43, 43, 40, 0.20);
+  --font-serif: "KaiTi", "STKaiti", "Noto Serif SC", "SimSun", serif;
+}
+
+:root[data-theme="dark"] {
+  /* 同源暖炭：卡盒的夜间形态 */
+  --desk: #26231e;
+  --box: #2e2a24;
+  --card: #363129;
+  --ink: #e8e3d6;
+  --ink-2: #a39e8f;
+  --hairline: #4a4438;
+  --c-pass: #6fa182;
+  --c-reject: #c65a44;
+  --c-flag: #c9a04e;
+  --annot-ink: #d0776a;
+
+  --bg-0: var(--desk); --bg-1: var(--card); --bg-2: var(--box); --bg-3: #3c372d;
+  --border: var(--hairline); --border-strong: #5a5344;
+  --text-1: var(--ink); --text-2: var(--ink-2); --text-3: #7d7768;
+  --accent: var(--ink); --accent-hover: #f2ede0; --accent-weak: rgba(232, 227, 214, 0.12);
+  --pass: var(--c-pass); --reject: var(--c-reject); --flag: var(--c-flag); unreviewed: #5a5344;
+  --pass-bg: rgba(111, 161, 130, 0.16); --reject-bg: rgba(198, 90, 68, 0.16); --flag-bg: rgba(201, 160, 78, 0.16);
+  --checker-a: #322d25; --checker-b: var(--box); --checker-bg: var(--box);
+  --stage-line: rgba(232, 227, 214, 0.16);
+  --annot: var(--annot-ink); --annot-side-a: #7fa3b8;
+  --shadow-pop: 0 2px 10px rgba(0, 0, 0, 0.45); --shadow-modal: 0 12px 36px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- 全局：纸感字体与按钮 ---------- */
+html, body { background: var(--bg-0); }
+button { border-radius: 3px; }
+button.on { background: var(--ink); border-color: var(--ink); color: var(--card); }
+:root[data-theme="dark"] button.on { background: var(--ink); border-color: var(--ink); color: var(--desk); }
+
+header { background: var(--bg-1); border-bottom-color: var(--hairline); }
+header .brand { font-weight: 700; letter-spacing: .03em; }
+.seg { background: var(--bg-2); border-color: var(--hairline); }
+.seg button.on { background: var(--card); box-shadow: 0 0 0 1px var(--hairline); }
+.set-picker { background: var(--card); border-color: var(--hairline); }
+.set-picker > span { color: var(--ink-2); font-weight: 400; }
+
+/* ---------- 统计条：压扁、档案感 ---------- */
+#statsBar { background: var(--bg-2); border-bottom-color: var(--hairline); font-size: 11.5px; }
+#statsBar .progress-track { background: var(--hairline); height: 4px; }
+#quickFilters button.on { background: var(--ink); border-color: var(--ink); color: var(--card); }
+
+/* ---------- 单张对照：卡盒骨架 ---------- */
+#canvasArea { background: var(--box); }
+#panes { gap: 0; }
+.pane { background: var(--card); }
+.pane + .pane { border-left: none; }
+/* 中缝对齐虚线（索引卡盒的装订缝） */
+#panes { position: relative; }
+#panes::before {
+  content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 0;
+  border-left: 1px dashed #b0a894; opacity: .55; pointer-events: none; z-index: 3;
+}
+:root[data-theme="dark"] #panes::before { border-left-color: #5a5344; }
+.pane-head { background: var(--card); border-bottom-color: var(--hairline); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; }
+.pane-head .role { font-weight: 600; color: var(--ink-2); letter-spacing: .12em; }
+.viewport { background-color: var(--card); background-image: none; }
+.stage { box-shadow: 0 2px 6px rgba(43, 43, 40, .16); }
+
+/* ---------- 判定键：三联实心分组（全屏主角） ---------- */
+#cmdBar { background: var(--bg-1); border-top-color: var(--hairline); padding: 8px 14px; }
+.status-btns { display: flex; }
+.status-btns button {
+  height: 40px; min-width: 92px; padding: 0 20px;
+  font-size: 14.5px; font-weight: 700; letter-spacing: .08em;
+  border-radius: 0; margin-left: -1px; position: relative;
+  background: var(--card); border: 1.5px solid var(--hairline); color: var(--ink-2);
+}
+.status-btns button:first-child { margin-left: 0; border-radius: 3px 0 0 3px; }
+.status-btns button:last-child { border-radius: 0 3px 3px 0; }
+.status-btns button .key-hint { border-color: currentColor; opacity: .55; font-size: 10px; }
+/* 激活=实心填充（唯一实心色块组） */
+.status-btns button.pass.on { background: var(--c-pass); border-color: var(--c-pass); color: #fff; z-index: 2; }
+.status-btns button.reject.on { background: var(--c-reject); border-color: var(--c-reject); color: #fff; z-index: 2; }
+.status-btns button.flag.on { background: var(--c-flag); border-color: var(--c-flag); color: #fff; z-index: 2; }
+.status-btns button.pass.on .key-hint,
+.status-btns button.reject.on .key-hint,
+.status-btns button.flag.on .key-hint { opacity: .75; }
+.status-btns button.pass:hover:not(.on) { background: var(--pass-bg); border-color: var(--c-pass); color: var(--c-pass); }
+.status-btns button.reject:hover:not(.on) { background: var(--reject-bg); border-color: var(--c-reject); color: var(--c-reject); }
+.status-btns button.flag:hover:not(.on) { background: var(--flag-bg); border-color: var(--c-flag); color: var(--c-flag); }
+/* 清除键：降级为文字按钮，0 时由 JS 隐藏（CSS 兜底弱化） */
+.status-btns button[data-status=""] {
+  min-width: 0; border-color: transparent; font-weight: 400; font-size: 12.5px; color: var(--ink-2);
+}
+.status-btns button[data-status=""]:hover { color: var(--ink); border-color: var(--hairline); background: var(--card); }
+
+/* ---------- 标签 chip：中性深灰激活（选中不是红色事件） ---------- */
+#tagRow { background: var(--bg-1); border-top-color: var(--hairline); }
+.tag { border-radius: 3px; font-size: 11.5px; }
+.tag.on { background: #4a463e; border-color: #4a463e; color: #fff; }
+:root[data-theme="dark"] .tag.on { background: #d8d2c2; border-color: #d8d2c2; color: #2b2b28; }
+
+/* ---------- 圈注：赭红细框严格贴元素（全屏唯一的红） ---------- */
+.annot { border: 1.5px solid var(--annot-ink); background: color-mix(in srgb, var(--annot-ink) 8%, transparent); border-radius: 2px; }
+.annot .num { background: var(--annot-ink); border-radius: 50%; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; top: -8px; left: -8px; }
+.annot.side-a { border-color: var(--annot-side-a); background: color-mix(in srgb, var(--annot-side-a) 8%, transparent); }
+.annot.side-a .num { background: var(--annot-side-a); }
+
+/* ---------- B 卡状态章：楷体描线小圆（statBadge 增强，JS 填状态字） ---------- */
+#statBadge.wax, #textStatBadge.wax {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  font-family: var(--font-serif); font-size: 12px; font-weight: 700;
+  transform: rotate(7deg);
+  border: 2px solid currentColor; background: transparent;
+  letter-spacing: 0; line-height: 1;
+}
+#statBadge.wax.pass, #textStatBadge.wax.pass { color: var(--c-pass); }
+#statBadge.wax.reject, #textStatBadge.wax.reject { color: var(--c-reject); }
+#statBadge.wax.flag, #textStatBadge.wax.flag { color: var(--c-flag); }
+@keyframes wax-in {
+  0% { transform: rotate(-12deg) scale(1.12) translateY(-14px); opacity: 0; }
+  100% { transform: rotate(7deg) scale(1) translateY(0); opacity: 1; }
+}
+#statBadge.wax.enter, #textStatBadge.wax.enter { animation: wax-in .45s cubic-bezier(.25, 1.1, .35, 1) both; }
+
+/* ---------- 换卡浮出（两拍换卡第二拍 · F 抽卡语言） ----------
+   翻卡/点 queueBar tab 时，两栏分别淡入 + 微升 12px，0.28s 缓和 ease-out；
+   右栏慢 60ms（左栏先、右栏后），强化「抽出一张新卡放进卡盒」的次序感。
+   纸感克制：不用弹性，避免和落章的 wax-in 抢戏。 */
+@keyframes card-enter {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.card-enter-a { animation: card-enter .28s cubic-bezier(.22, .61, .36, 1) both; }
+.card-enter-b { animation: card-enter .28s cubic-bezier(.22, .61, .36, 1) .06s both; }
+@media (prefers-reduced-motion: reduce) {
+  .card-enter-a, .card-enter-b,
+  #statBadge.wax.enter, #textStatBadge.wax.enter { animation: none; }
+}
+
+/* ---------- 缩略图墙：卡盒格子 ---------- */
+#wallGrid { background: var(--box); }
+.cell { background: var(--card); border: 0; border-radius: 4px; box-shadow: 0 2px 6px rgba(43, 43, 40, .12); }
+.cell:hover { box-shadow: 0 4px 12px rgba(43, 43, 40, .18); transform: translateY(-2px); }
+.cell.current { border-color: var(--ink); }
+.cell .caption { border-top-color: var(--hairline); font-family: var(--font-mono); font-size: 10.5px; }
+.cell.st-pass .state-dot { background: var(--c-pass); }
+.cell.st-reject .state-dot { background: var(--c-reject); }
+.cell.st-flag .state-dot { background: var(--c-flag); }
+#wallToolbar { background: var(--bg-1); border-bottom-color: var(--hairline); }
+#wallPager { background: var(--bg-1); border-top-color: var(--hairline); }
+
+/* ---------- S1 多选：从卡盒里抽出一叠 ----------
+   选中的卡上浮 4px + 投影加深（像被手指拈起来），而非仅描边变色。
+   勾选框改为卡角的「抽起标记」，选中即实心。 */
+.cell.selected {
+  border: 0; box-shadow: 0 10px 22px rgba(43, 43, 40, .28), 0 0 0 1.5px var(--ink-2);
+  transform: translateY(-4px); z-index: 3;
+}
+.cell .check {
+  width: 18px; height: 18px; border-radius: 3px; border: 1.5px solid var(--ink-2);
+  background: var(--card); color: transparent; font-weight: 700;
+}
+.cell.selected .check { background: var(--ink); border-color: var(--ink); color: var(--card); }
+:root[data-theme="dark"] .cell.selected {
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .5), 0 0 0 1.5px var(--ink-2);
+}
+:root[data-theme="dark"] .cell.selected .check { background: var(--card); border-color: var(--card); color: var(--ink); }
+
+/* ---------- S2 叠加对比：divider → 印刷对位标线 ----------
+   F 的「对版」语言：分界不是一根粗手柄，而是 1px 墨色对位线 + 中心对位十字。
+   保留拖拽功能，去掉笨重的 ⇔ 手柄块。 */
+.ov-divider { border-left: 1px solid var(--ink); }
+.ov-divider::before, .ov-divider::after {
+  content: ''; position: absolute; left: -7px; width: 15px; height: 1px; background: var(--ink);
+}
+.ov-divider::before { top: 33%; }
+.ov-divider::after { top: 66%; }
+.ov-divider .ov-grip {
+  width: 26px; height: 26px; line-height: 24px; left: -13px;
+  background: var(--card); color: var(--ink); border: 1.5px solid var(--ink); border-radius: 50%;
+  font-size: 0; box-shadow: 0 2px 8px rgba(43, 43, 40, .2);
+}
+/* 对位十字：⊕ 形准星取代 ⇔ 文字 */
+.ov-divider .ov-grip::before, .ov-divider .ov-grip::after {
+  content: ''; position: absolute; background: var(--ink); left: 50%; top: 50%;
+}
+.ov-divider .ov-grip::before { width: 12px; height: 1.5px; transform: translate(-50%, -50%); }
+.ov-divider .ov-grip::after { width: 1.5px; height: 12px; transform: translate(-50%, -50%); }
+:root[data-theme="dark"] .ov-divider .ov-grip { box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+
+/* ---------- S3 批量/派生弹层 → 登记条 ----------
+   F 的「登记」语言：弹层是一张卡纸登记条，左缘一道装订线，
+   标题用楷体，确认键做成「落章」实心。结构不动（app.js 填充 batchBody）。 */
+#batchModal .modal, #deriveModal .modal {
+  background: var(--card); border: 1px solid var(--hairline); border-radius: 3px;
+  border-left: 4px solid var(--ink-2); box-shadow: 0 14px 40px rgba(43, 43, 40, .25);
+}
+#batchModal .modal h2, #deriveModal .modal h2 {
+  font-family: "KaiTi", "STKaiti", "Noto Serif SC", "SimSun", serif;
+  font-size: 17px; font-weight: 700; color: var(--ink);
+  border-bottom: 1px dashed var(--hairline); padding-bottom: 8px;
+}
+/* 批量「确定」= 批量落章（评审 5.3）：任务链最后一击，承接到「判定=盖印泥章」的隐喻。
+   用印章红，与单张判定「打回」键同色——红色在这里是合理支出。 */
+#batchModal .modal .actions .primary, #deriveModal .modal .actions .primary {
+  background: var(--c-reject); border-color: var(--c-reject); color: #fff; border-radius: 3px;
+  font-weight: 700;
+}
+#batchModal .modal .actions .primary:hover, #deriveModal .modal .actions .primary:hover {
+  background: #8f3223; border-color: #8f3223; color: #fff;
+}
+#batchModal .tag, #deriveModal .tag { border-radius: 2px; }
+
+/* 归档章：归档成功时在屏中央盖一枚「归档」圆章（card-index.js 触发） */
+#archiveSeal {
+  position: fixed; left: 50%; top: 46%; z-index: 90; pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-8deg) scale(1.3); opacity: 0;
+  width: 120px; height: 120px; border: 4px solid var(--c-reject); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 34px/1 "KaiTi", "STKaiti", "Noto Serif SC", serif; color: var(--c-reject);
+  letter-spacing: 4px; text-indent: 4px;
+}
+#archiveSeal.stamp { animation: archive-stamp .8s cubic-bezier(.2, .9, .3, 1) both; }
+@keyframes archive-stamp {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(-16deg) scale(1.6); }
+  35% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg) scale(1); }
+  70% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(-8deg) scale(1.05); }
+}
+
+/* S1 批量条吸附盒底：多选时把散在工具栏的批量操作聚成一条，贴住卡盒下缘。
+   JS 在多选激活且有选中时给它 .dock 类并填入作用数。 */
+#wallBatchDock {
+  display: none; position: sticky; bottom: 0; z-index: 5;
+  margin: 0 -10px; padding: 8px 14px;
+  background: var(--desk); border-top: 1px solid var(--hairline);
+  box-shadow: 0 -4px 14px rgba(43, 43, 40, .12);
+  display: none; align-items: center; gap: 8px;
+  font: 400 12px/1 var(--font-mono); color: var(--ink-2);
+}
+#wallBatchDock.dock { display: flex; }
+#wallBatchDock .n { font-weight: 700; color: var(--ink); }
+#wallBatchDock button {
+  height: 30px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: 3px;
+  background: var(--card); color: var(--ink); font: 400 12px/1 inherit; cursor: pointer;
+}
+#wallBatchDock button:hover { border-color: var(--ink-2); }
+#wallBatchDock button.b-pass { color: var(--c-pass); }
+#wallBatchDock button.b-flag { color: var(--c-flag); }
+#wallBatchDock button.b-reject { color: var(--c-reject); }
+#wallBatchDock .spacer { flex: 1; }
+
+/* ---------- 详情面板与弹层：卡纸 ---------- */
+#sidePanel { background: var(--card); border-left-color: var(--hairline); }
+.side-section { border-bottom-color: var(--hairline); }
+.modal { background: var(--card); border-color: var(--hairline); border-radius: 4px; }
+#toast { background: var(--card); border-color: var(--hairline); border-radius: 4px; }
+
+/* ---------- 队列条（F 特色 tab 切边，JS 渲染进 #queueBar） ---------- */
+#queueBar {
+  flex: 0 0 auto; display: flex; align-items: flex-end; gap: 3px;
+  padding: 6px 14px 0; background: var(--box); overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--hairline);
+}
+#queueBar::-webkit-scrollbar { display: none; }
+#queueBar .qtab {
+  flex: none; border: 1px solid var(--hairline); border-bottom: 0;
+  border-radius: 5px 5px 0 0; background: var(--desk);
+  padding: 4px 12px 6px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
+  position: relative; cursor: pointer; transition: all .12s;
+}
+#queueBar .qtab::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px;
+  border-radius: 2px; background: transparent;
+}
+#queueBar .qtab.st-pass::after { background: var(--c-pass); }
+#queueBar .qtab.st-reject::after { background: var(--c-reject); }
+#queueBar .qtab.st-flag::after { background: var(--c-flag); }
+#queueBar .qtab.cur {
+  background: var(--card); color: var(--ink); font-weight: 700;
+  padding: 7px 12px 10px; margin-bottom: -1px; margin-top: -6px; z-index: 2;
+  border-top: 2px solid var(--ink-2);
+}
+#queueBar .qtab.cur::after { background: var(--ink-2); }
+#queueBar .qtab:hover:not(.cur) { color: var(--ink); }
+
+/* ---------- 文本态：行级对照（P0 · T1/T2/T3） ---------- */
+/* T3 行级同步：等行高 + 基线对齐 + 隔行 2% 明度交替（取代旧横线稿纸） */
+.text-body { padding: 10px 0; line-height: 1.75; font-size: 13.5px; }
+.ln-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 2px 14px 2px 8px; min-height: 27px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.text-body.nowrap .ln-row { white-space: pre; word-break: normal; }
+.ln-row.alt { background: rgba(138, 135, 126, .06); }
+:root[data-theme="dark"] .ln-row.alt { background: rgba(220, 215, 205, .05); }
+.ln-row.hover { background: rgba(74, 125, 93, .10); box-shadow: inset 2px 0 0 var(--c-pass); }
+:root[data-theme="dark"] .ln-row.hover { background: rgba(122, 173, 143, .12); }
+.ln-row.flash { animation: ln-flash .9s ease; }
+@keyframes ln-flash {
+  0%, 40% { background: rgba(168, 130, 60, .25); box-shadow: inset 2px 0 0 var(--c-flag); }
+  100% { background: transparent; box-shadow: none; }
+}
+
+/* T1 行号层：mono 11px，颜色映射该行最严重问题（漏译红加粗 > 术语错红常规 > 灰） */
+.ln-row .ln {
+  flex: 0 0 34px; text-align: right; user-select: none; cursor: pointer;
+  font: 400 11px/1.75 var(--font-mono); font-style: normal; color: var(--ink-2);
+  align-self: stretch; display: flex; align-items: center; justify-content: flex-end;
+}
+.ln-row .ln:hover { color: var(--ink); text-decoration: underline dotted; }
+.ln-row.sev-term .ln { color: var(--annot-ink); }
+.ln-row.sev-miss .ln { color: var(--c-reject); font-weight: 700; }
+.ln-row .lt { flex: 1 1 auto; min-width: 0; }
+
+/* T2 问题行标记：漏译 = 行末次级 chip（浅红底+红字+1px 描边，权重让位错文本身）；
+   术语错 = 词上 wavy 1.5px 下划线 + 12% 词背景（深色降饱和） */
+.ln-row .lmiss {
+  flex: 0 0 auto; align-self: center; margin-left: 6px;
+  font: 700 10px/1 var(--font-mono); letter-spacing: .5px; color: var(--c-reject);
+  background: rgba(166, 58, 40, .08); border: 1px solid rgba(166, 58, 40, .45);
+  padding: 3px 6px; border-radius: 2px;
+}
+:root[data-theme="dark"] .ln-row .lmiss {
+  color: #d68a7a; background: rgba(214, 108, 90, .10); border-color: rgba(214, 108, 90, .5);
+}
+/* 术语错改深棕（评审·红色预算）：wavy 红与判定落章红同色相，单卡多处红会争注意力。
+   深棕与暖灰纸感协调，红色只留给「判定」这一核心动作。漏译保留红（整行缺失更严重）。 */
+.ln-row .lterm {
+  text-decoration: underline wavy var(--annot-ink) 1.5px; text-underline-offset: 3px;
+  background: rgba(164, 85, 76, .14); border-radius: 2px; padding: 0 1px;
+}
+:root[data-theme="dark"] .ln-row .lterm {
+  text-decoration-color: #c08878; background: rgba(192, 136, 120, .16);
+}
+.ln-row.sev-miss { background: rgba(166, 58, 40, .05); }
+:root[data-theme="dark"] .ln-row.sev-miss { background: rgba(214, 108, 90, .08); }
+
+/* 行号点选菜单（文本态的圈选入口） */
+.ln-menu {
+  position: fixed; z-index: 60; min-width: 150px;
+  background: var(--card); border: 1px solid var(--hairline); border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(43, 43, 40, .18); padding: 6px;
+}
+.ln-menu-title {
+  font: 700 11px/1 var(--font-mono); color: var(--ink-2);
+  padding: 6px 8px 4px; border-bottom: 1px dashed var(--hairline); margin-bottom: 4px;
+}
+.ln-menu-btn {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  font: 400 12px/1.6 inherit; color: var(--ink); padding: 5px 8px; border-radius: 3px; cursor: pointer;
+}
+.ln-menu-btn:hover { background: rgba(138, 135, 126, .12); }
+.ln-menu-btn.del { color: var(--c-reject); }

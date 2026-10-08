@@ -753,8 +753,11 @@ function paintMeta(item, full) {
 
   const infoA = full && full.a ? full.a : null;
   const infoB = full && full.b ? full.b : null;
-  $('#metaA').textContent = infoA && infoA.path ? shortPath(infoA.path) : '';
-  $('#metaB').textContent = infoB && infoB.path ? shortPath(infoB.path) : '';
+  // 文件路径收进 tooltip（评审：完整路径是调试信息，审批者只需知道是哪一侧）
+  const nameA = infoA && infoA.path ? String(infoA.path).split(/[\\/]/).pop() : '';
+  const nameB = infoB && infoB.path ? String(infoB.path).split(/[\\/]/).pop() : '';
+  $('#metaA').textContent = nameA; $('#metaA').title = infoA && infoA.path ? shortPath(infoA.path) : '';
+  $('#metaB').textContent = nameB; $('#metaB').title = infoB && infoB.path ? shortPath(infoB.path) : '';
 }
 
 /** 切换素材集时把单张视图里的残留内容清掉，避免看到上一个素材集的信息 */
@@ -1139,20 +1142,28 @@ function drawAnnotations() {
 
 function renderAnnotList() {
   const list = (S.draft && S.draft.annotations) || [];
+  const isText = S.set.type === 'text';
   $('#annotCount').textContent = list.length ? '（' + list.length + ' 处）' : '';
   $('#annotHint').innerHTML = S.draft
-    ? '画框：点工具栏「圈图」或按 R，然后在图上拖拽。框内文字在下面填写，会自动保存。'
+    ? (isText
+      ? '行标记：点文本行首的「行号」，选 漏译 / 术语错。会自动保存。'
+      : '画框：点工具栏「圈图」或按 R，然后在图上拖拽。框内文字在下面填写，会自动保存。')
     : '';
 
   const ul = $('#annotList');
   if (!list.length) {
-    ul.innerHTML = '<li style="cursor:default;background:transparent;border:none;padding:0" class="empty-hint">还没有圈选</li>';
+    ul.innerHTML = '<li style="cursor:default;background:transparent;border:none;padding:0" class="empty-hint">'
+      + (isText ? '还没有行标记' : '还没有圈选') + '</li>';
     return;
   }
   ul.innerHTML = list.map((an, i) => {
     const sideName = an.side === 'a' ? S.set.sourceA : S.set.sourceB;
-    const pos = 'x' + (an.x * 100).toFixed(0) + '% y' + (an.y * 100).toFixed(0) + '% ' +
-      (an.w * 100).toFixed(0) + '×' + (an.h * 100).toFixed(0) + '%';
+    // 文本态行标记：x 存行号（1 起），y/w/h 恒为 0，显示行号而非百分比坐标
+    const isLineMark = an.w === 0 && an.h === 0 && an.y === 0 && Number(an.x) >= 1;
+    const pos = isLineMark
+      ? '第 ' + Math.round(Number(an.x)) + ' 行' + (an.tag ? ' · ' + an.tag : '')
+      : 'x' + (an.x * 100).toFixed(0) + '% y' + (an.y * 100).toFixed(0) + '% ' +
+        (an.w * 100).toFixed(0) + '×' + (an.h * 100).toFixed(0) + '%';
     return '<li data-annot="' + i + '" class="' + (i === S.annotFocus ? 'active' : '') + '">' +
       '<span class="idx">' + (i + 1) + '</span>' +
       '<div class="body">' +
@@ -1221,6 +1232,19 @@ function focusAnnotation(index) {
   if (!S.draft || !S.draft.annotations[index]) return;
   S.annotFocus = index;
   const an = S.draft.annotations[index];
+  // 文本态行标记：滚动到该行并闪一下，没有画布可平移
+  const isLineMark = an.w === 0 && an.h === 0 && an.y === 0 && Number(an.x) >= 1;
+  if (isLineMark) {
+    const body = $('#text' + (an.side || 'b').toUpperCase());
+    const row = body && body.querySelector('.ln-row[data-line="' + Math.round(Number(an.x)) + '"]');
+    if (row) {
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.classList.add('flash');
+      setTimeout(() => row.classList.remove('flash'), 900);
+    }
+    renderAnnotList();
+    return;
+  }
   // 把视图平移过去，让该框居中
   const m = stageMetrics(an.side);
   if (m) {
@@ -1236,17 +1260,167 @@ function focusAnnotation(index) {
 
 /* ------------------------------------------------------------ 文本对照 */
 
+/* ------------------------------------------------------------ 文本行级对照（P0）
+   文本态复用 record.annotations 存「问题行锚点」：x = 行号（1 起），
+   tag 用预设词表（漏译/术语错…），note 是问题说明。图像态语义不变。 */
+
+const TEXT_LINE_TAGS = ['漏译', '术语错'];
+
+/** 把纯文本拆成 [{n, t}]，空行保留（占位对齐用） */
+function splitTextLines(text) {
+  return String(text || '').split('\n').map((t, i) => ({ n: i + 1, t: t }));
+}
+
+/** 从 draft.annotations 里抽出文本态的行锚点：{ lineNo -> [{tag,note,side}] } */
+function textLineMarks() {
+  const map = new Map();
+  if (!S.draft || !S.draft.annotations) return map;
+  S.draft.annotations.forEach((an) => {
+    const line = Math.round(Number(an.x) || 0);
+    if (line < 1) return;
+    if (!map.has(line)) map.set(line, []);
+    map.get(line).push(an);
+  });
+  return map;
+}
+
+/** 该行最严重的问题级别：miss(漏译) > term(术语错) > '' */
+function lineSeverity(marks) {
+  if (!marks || !marks.length) return '';
+  const tags = marks.map((m) => m.tag || '');
+  if (tags.some((t) => t === '漏译')) return 'miss';
+  if (tags.some((t) => t === '术语错')) return 'term';
+  return 'other';
+}
+
+/** 渲染一侧文本为行级结构。side: 'a'|'b'，lines: [{n,t}]，marks: Map */
+function renderTextSide(lines, marks, side) {
+  const maxN = lines.length;
+  return lines.map((ln) => {
+    const lineMarks = marks.get(ln.n) || [];
+    const sev = lineSeverity(lineMarks.filter((m) => (m.side || 'b') === side));
+    const cls = ['ln-row'];
+    if (sev) cls.push('sev-' + sev);
+    if (ln.n % 2 === 0) cls.push('alt');
+    let inner = '<i class="ln">' + ln.n + '</i><span class="lt">' + (ln.t ? esc(ln.t) : ' ') + '</span>';
+    // 行内问题标记（只画在本侧）
+    lineMarks.filter((m) => (m.side || 'b') === side).forEach((m) => {
+      if (m.tag === '漏译') {
+        const tip = '漏译' + (m.note ? '：' + m.note : '') + '（源第 ' + ln.n + ' 行）';
+        inner += '<span class="lmiss" title="' + esc(tip) + '">漏译</span>';
+      } else if (m.tag === '术语错' && m.note) {
+        // 术语错：note 里写「错词=>正词」，把错词标出来
+        const parts = m.note.split('=>');
+        const wrong = parts[0] ? parts[0].trim() : '';
+        if (wrong && ln.t.includes(wrong)) {
+          inner = '<i class="ln">' + ln.n + '</i><span class="lt">' +
+            esc(ln.t).replace(esc(wrong), '<u class="lterm" title="' + esc(m.note) + '">' + esc(wrong) + '</u>') + '</span>';
+        }
+      }
+    });
+    return '<div class="' + cls.join(' ') + '" data-line="' + ln.n + '" data-side="' + side + '">' + inner + '</div>';
+  }).join('');
+}
+
 function renderTextPanes(item) {
   const paneA = item.a || {}, paneB = item.b || {};
   const bodyA = $('#textA'), bodyB = $('#textB');
   applyTextStyle();
-  bodyA.textContent = paneA.exists ? paneA.text : ('（' + (paneA.missing_reason || '源A 无对应文本') + '）');
-  bodyB.textContent = paneB.exists ? paneB.text : ('（' + (paneB.missing_reason || '源B 无对应文本') + '）');
-  bodyA.style.color = paneA.exists ? '' : 'var(--text-faint)';
-  bodyB.style.color = paneB.exists ? '' : 'var(--text-faint)';
-  $('#textMetaA').textContent = paneA.exists ? (paneA.text || '').length + ' 字' : '';
-  $('#textMetaB').textContent = paneB.exists ? (paneB.text || '').length + ' 字' : '';
+  const marks = textLineMarks();
+  const linesA = paneA.exists ? splitTextLines(paneA.text) : [];
+  const linesB = paneB.exists ? splitTextLines(paneB.text) : [];
+  // T3 行级同步：两侧行数对齐到较多的一侧，缺的一侧补空行占位
+  const maxLines = Math.max(linesA.length, linesB.length);
+  while (linesA.length < maxLines) linesA.push({ n: linesA.length + 1, t: '' });
+  while (linesB.length < maxLines) linesB.push({ n: linesB.length + 1, t: '' });
+
+  if (paneA.exists) {
+    bodyA.innerHTML = renderTextSide(linesA, marks, 'a');
+    bodyA.style.color = '';
+  } else {
+    bodyA.textContent = '（' + (paneA.missing_reason || '源A 无对应文本') + '）';
+    bodyA.style.color = 'var(--text-faint)';
+  }
+  if (paneB.exists) {
+    bodyB.innerHTML = renderTextSide(linesB, marks, 'b');
+    bodyB.style.color = '';
+  } else {
+    bodyB.textContent = '（' + (paneB.missing_reason || '源B 无对应文本') + '）';
+    bodyB.style.color = 'var(--text-faint)';
+  }
+  // 栏头只留「英文原文 / 中文译文」，字数收进 tooltip（P8：字数对审批判断无帮助且单位有歧义）
+  const metaA = paneA.exists ? (paneA.text || '').length + ' 字' : '';
+  const metaB = paneB.exists ? (paneB.text || '').length + ' 字' : '';
+  $('#textMetaA').textContent = ''; $('#textMetaA').title = metaA;
+  $('#textMetaB').textContent = ''; $('#textMetaB').title = metaB;
   bodyA.scrollTop = 0; bodyB.scrollTop = 0;
+  bindTextLineHover();
+}
+
+/** 行悬浮联动：鼠标悬停某侧某行时，另一侧同一行号高亮（T3 的视觉锚） */
+function bindTextLineHover() {
+  ['#textA', '#textB'].forEach((sel) => {
+    const el = $(sel);
+    el.onmouseover = (e) => {
+      const row = e.target.closest('.ln-row');
+      $$('#textWrap .ln-row.hover').forEach((r) => r.classList.remove('hover'));
+      if (!row) return;
+      const n = row.dataset.line;
+      $$('#textWrap .ln-row[data-line="' + n + '"]').forEach((r) => r.classList.add('hover'));
+    };
+    el.onmouseleave = () => {
+      $$('#textWrap .ln-row.hover').forEach((r) => r.classList.remove('hover'));
+    };
+    // 点击行号：给该行加/切换问题标记（文本态的「圈选」）
+    el.onclick = (e) => {
+      const ln = e.target.closest('.ln');
+      if (!ln) return;
+      const row = ln.closest('.ln-row');
+      if (!row || !S.draft) return;
+      const lineNo = Number(row.dataset.line);
+      const side = row.dataset.side;
+      addTextLineMark(lineNo, side);
+    };
+  });
+}
+
+/** 给某行加一个问题标记：弹小菜单选 漏译/术语错，选完写进 draft.annotations */
+function addTextLineMark(lineNo, side) {
+  // 已有标记：切换/删除
+  const existing = S.draft.annotations.findIndex((an) =>
+    Math.round(Number(an.x) || 0) === lineNo && (an.side || 'b') === side);
+  const menu = document.createElement('div');
+  menu.className = 'ln-menu';
+  menu.innerHTML = '<div class="ln-menu-title">第 ' + lineNo + ' 行标记</div>' +
+    TEXT_LINE_TAGS.map((t) => '<button class="ln-menu-btn" data-tag="' + t + '">' + t + '</button>').join('') +
+    (existing >= 0 ? '<button class="ln-menu-btn del" data-del="1">删除标记</button>' : '') +
+    '<button class="ln-menu-btn cancel">取消</button>';
+  document.body.appendChild(menu);
+  const row = $('#text' + side.toUpperCase()).querySelector('.ln-row[data-line="' + lineNo + '"]');
+  const rc = row ? row.getBoundingClientRect() : { left: 200, bottom: 200 };
+  menu.style.left = Math.min(rc.left, window.innerWidth - 180) + 'px';
+  menu.style.top = (rc.bottom + 6) + 'px';
+  const close = () => { menu.remove(); document.removeEventListener('mousedown', onOut); };
+  const onOut = (e) => { if (!menu.contains(e.target)) close(); };
+  document.addEventListener('mousedown', onOut);
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ln-menu-btn');
+    if (!btn || btn.classList.contains('cancel')) { close(); return; }
+    if (btn.dataset.del) {
+      S.draft.annotations.splice(existing, 1);
+    } else {
+      const tag = btn.dataset.tag;
+      let note = '';
+      if (tag === '术语错') note = prompt('术语错：错词=>正词（如「柱子=>石柱」）', '') || '';
+      else note = prompt('漏译说明（可空）', '') || '';
+      if (existing >= 0) S.draft.annotations.splice(existing, 1);
+      S.draft.annotations.push({ side: side, x: lineNo, y: 0, w: 0, h: 0, note: note, tag: tag });
+    }
+    close();
+    renderTextPanes(S.curFull || {});
+    renderAnnotList();
+    flush();
+  });
 }
 
 function applyTextStyle() {
@@ -1423,8 +1597,18 @@ function setStatus(status, options) {
   const shouldAdvance = !(options && options.noAdvance) &&
     S.autoAdvance && next !== '' && next !== was;
   flush().then(() => {
-    // 只有在用户没有翻走、且确实标记成功时才自动前进
-    if (shouldAdvance && S.cur && S.cur.key === key && S.draft && S.draft.status === next) step(1);
+    // 只有在用户没有翻走、且确实标记成功时才自动前进。
+    // F 落章：判定落章是产品里最有仪式感的一刻，但若立刻跳卡，wax-in 0.45s 动画
+    // 没播完视图就切走（落章实际不可见）。但完整等 animationend 再跳，在批量审批
+    // 场景是真实效率负担（评审实测 1.10s/张 ≈ 100 张 2 分钟纯等待）。取并行节奏：
+    // 300ms 时章已基本落定（scale/rotate 接近终值），新卡抽上来与章尾段回弹并行——
+    // 「章还在回弹时新卡已经抽上来」，既是卡盒手感又不打断审批流。
+    if (shouldAdvance && S.cur && S.cur.key === key && S.draft && S.draft.status === next) {
+      const advance = () => { if (S.cur && S.cur.key === key && S.draft && S.draft.status === next) step(1); };
+      const wax = document.querySelector('#statBadge.wax.enter, #textStatBadge.wax.enter');
+      if (wax) setTimeout(advance, 300);   // 与落章并行，不等动画完全结束
+      else advance();                       // 无章（清除标记等）立即跳
+    }
   });
 }
 
