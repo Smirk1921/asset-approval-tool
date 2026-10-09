@@ -279,7 +279,13 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
    标题用楷体，确认键做成「落章」实心。结构不动（app.js 填充 batchBody）。 */
 #batchModal .modal, #deriveModal .modal {
   background: var(--card); border: 1px solid var(--hairline); border-radius: 3px;
-  border-left: 4px solid var(--ink-2); box-shadow: 0 14px 40px rgba(43, 43, 40, .25);
+  border-left: 6px solid var(--ink); box-shadow: 0 14px 40px rgba(43, 43, 40, .25);
+  position: relative;
+}
+/* 装订线加强：左缘 6px 墨线 + 内侧一道细线，双线装订工艺感（缩略图下也可辨） */
+#batchModal .modal::before, #deriveModal .modal::before {
+  content: ''; position: absolute; left: 6px; top: 0; bottom: 0; width: 1px;
+  background: var(--hairline);
 }
 #batchModal .modal h2, #deriveModal .modal h2 {
   font-family: "KaiTi", "STKaiti", "Noto Serif SC", "SimSun", serif;
