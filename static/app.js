@@ -350,6 +350,31 @@ function tagChipHtml(tag, index, attr) {
     (index < keys.length ? '快捷键 ' + esc(keys[index]) : '') + '">' + esc(tag) + hint + '</span>';
 }
 
+/** 按语义把标签分组，组间插分隔符（评审共识：11 个 chip 平铺无层级）。
+   分组规则用语义关键词匹配，匹配不到的进「其它」组；顺序保持 config 原序。 */
+function tagChipsGrouped() {
+  const tags = S.cfg.tags || [];
+  const groups = [
+    { name: '文字', match: (t) => /标题|字体|黑底|分段|文字|术语/.test(t) },
+    { name: '图标', match: (t) => /图标|背景/.test(t) },
+    { name: '其它', match: () => true },
+  ];
+  const assigned = new Set();
+  const parts = [];
+  groups.forEach((g, gi) => {
+    const members = [];
+    tags.forEach((t, i) => {
+      if (assigned.has(t)) return;
+      if (g.match(t)) { members.push(tagChipHtml(t, i, 'data-tag')); assigned.add(t); }
+    });
+    if (!members.length) return;
+    if (parts.length) parts.push('<span class="tag-sep" aria-hidden="true"></span>');
+    parts.push('<span class="tag-group" data-group="' + g.name + '">' +
+      '<span class="tag-group-name">' + g.name + '</span>' + members.join('') + '</span>');
+  });
+  return parts.join('');
+}
+
 function configureForType() {
   const type = S.set.type;                    // image | text | model
   const isImage = type === 'image';
@@ -372,8 +397,8 @@ function configureForType() {
   S.wallSide = 'b';
   updateWallSideButtons();
 
-  // 标签
-  $('#tagChips').innerHTML = S.cfg.tags.map((t, i) => tagChipHtml(t, i, 'data-tag')).join('');
+  // 标签（评审共识：11 个 chip 平铺无分组 → 按语义分组，组间加分隔）
+  $('#tagChips').innerHTML = tagChipsGrouped();
   $('#batchTags').innerHTML = S.cfg.tags.map((t, i) => tagChipHtml(t, i, 'data-btag')).join('');
   $('#fTags').innerHTML = S.cfg.tags.map((t, i) => tagChipHtml(t, i, 'data-ftag')).join('');
   // 筛选面板里的分面
@@ -542,10 +567,12 @@ function renderStats() {
   });
 
   const pct = (n) => (total ? (n / total * 100) : 0);
+  // 进度条是「计量分布」不是「状态强调」（R3 共识·红色预算）：用墨色明度区分，
+  // 满饱和印章红只留给判定动作与印章。通过=深墨、打回=中墨、存疑=浅墨。
   $('#progressTrack').innerHTML =
-    '<div style="width:' + pct(pass) + '%;background:var(--pass)"></div>' +
-    '<div style="width:' + pct(reject) + '%;background:var(--reject)"></div>' +
-    '<div style="width:' + pct(flag) + '%;background:var(--flag)"></div>';
+    '<div style="width:' + pct(pass) + '%;background:var(--ink)"></div>' +
+    '<div style="width:' + pct(reject) + '%;background:var(--ink-2)"></div>' +
+    '<div style="width:' + pct(flag) + '%;background:var(--hairline)"></div>';
 
   $('#progressText').innerHTML = '已审 <b>' + reviewed + '</b> / ' + total +
     '（' + (total ? Math.round(pct(reviewed)) : 0) + '%）';
@@ -1302,22 +1329,24 @@ function renderTextSide(lines, marks, side) {
     const cls = ['ln-row'];
     if (sev) cls.push('sev-' + sev);
     if (ln.n % 2 === 0) cls.push('alt');
-    let inner = '<i class="ln">' + ln.n + '</i><span class="lt">' + (ln.t ? esc(ln.t) : ' ') + '</span>';
-    // 行内问题标记（只画在本侧）
+    if (ln.pad) cls.push('pad');  // 补空行（diff 的 blank line marker）
+    let missChip = '';
+    let ltContent = ln.t ? esc(ln.t) : ' ';
+    // 行内问题标记（只画在本侧）。漏译 chip 放进 .lt 紧跟文本/虚线；术语错在词上 wavy。
     lineMarks.filter((m) => (m.side || 'b') === side).forEach((m) => {
       if (m.tag === '漏译') {
         const tip = '漏译' + (m.note ? '：' + m.note : '') + '（源第 ' + ln.n + ' 行）';
-        inner += '<span class="lmiss" title="' + esc(tip) + '">漏译</span>';
+        missChip = '<span class="lmiss" title="' + esc(tip) + '">漏译</span>';
       } else if (m.tag === '术语错' && m.note) {
         // 术语错：note 里写「错词=>正词」，把错词标出来
         const parts = m.note.split('=>');
         const wrong = parts[0] ? parts[0].trim() : '';
         if (wrong && ln.t.includes(wrong)) {
-          inner = '<i class="ln">' + ln.n + '</i><span class="lt">' +
-            esc(ln.t).replace(esc(wrong), '<u class="lterm" title="' + esc(m.note) + '">' + esc(wrong) + '</u>') + '</span>';
+          ltContent = esc(ln.t).replace(esc(wrong), '<u class="lterm" title="' + esc(m.note) + '">' + esc(wrong) + '</u>');
         }
       }
     });
+    let inner = '<i class="ln">' + ln.n + '</i><span class="lt">' + ltContent + missChip + '</span>';
     return '<div class="' + cls.join(' ') + '" data-line="' + ln.n + '" data-side="' + side + '">' + inner + '</div>';
   }).join('');
 }
@@ -1329,10 +1358,11 @@ function renderTextPanes(item) {
   const marks = textLineMarks();
   const linesA = paneA.exists ? splitTextLines(paneA.text) : [];
   const linesB = paneB.exists ? splitTextLines(paneB.text) : [];
-  // T3 行级同步：两侧行数对齐到较多的一侧，缺的一侧补空行占位
+  // T3 行级同步：两侧行数对齐到较多的一侧，缺的一侧补空行占位。
+  // 补空行标 pad:true（diff 工具的 blank line marker），渲染成浅虚线暗示「此处应有内容，缺」。
   const maxLines = Math.max(linesA.length, linesB.length);
-  while (linesA.length < maxLines) linesA.push({ n: linesA.length + 1, t: '' });
-  while (linesB.length < maxLines) linesB.push({ n: linesB.length + 1, t: '' });
+  while (linesA.length < maxLines) linesA.push({ n: linesA.length + 1, t: '', pad: true });
+  while (linesB.length < maxLines) linesB.push({ n: linesB.length + 1, t: '', pad: true });
 
   if (paneA.exists) {
     bodyA.innerHTML = renderTextSide(linesA, marks, 'a');
@@ -1601,12 +1631,12 @@ function setStatus(status, options) {
     // F 落章：判定落章是产品里最有仪式感的一刻，但若立刻跳卡，wax-in 0.45s 动画
     // 没播完视图就切走（落章实际不可见）。但完整等 animationend 再跳，在批量审批
     // 场景是真实效率负担（评审实测 1.10s/张 ≈ 100 张 2 分钟纯等待）。取并行节奏：
-    // 300ms 时章已基本落定（scale/rotate 接近终值），新卡抽上来与章尾段回弹并行——
-    // 「章还在回弹时新卡已经抽上来」，既是卡盒手感又不打断审批流。
+    // 落章 0.5s 里「落下(55%)+压下接触(72%)」在 ~0.36s 完成，420ms 跳卡让压下帧被看见、
+    // 新卡在章回弹定型的尾段抽上来——「章快落定、新卡已抽」，手感与效率兼顾。
     if (shouldAdvance && S.cur && S.cur.key === key && S.draft && S.draft.status === next) {
       const advance = () => { if (S.cur && S.cur.key === key && S.draft && S.draft.status === next) step(1); };
-      const wax = document.querySelector('#statBadge.wax.enter, #textStatBadge.wax.enter');
-      if (wax) setTimeout(advance, 300);   // 与落章并行，不等动画完全结束
+      const wax = document.querySelector('#stageWax.oncard.enter, #statBadge.wax.enter, #textStatBadge.wax.enter');
+      if (wax) setTimeout(advance, 420);   // 压下帧播完后、回弹尾段跳卡
       else advance();                       // 无章（清除标记等）立即跳
     }
   });

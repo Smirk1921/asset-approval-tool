@@ -47,25 +47,65 @@
     if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
 
-  /* ---------------- 楷体章 ---------------- */
+  /* ---------------- 楷体章 ----------------
+     图片态：章盖在卡上（渲染进 #stageB，跟随卡片 transform，贴卡面右下角）。
+     文本态：章在对照区右下角（#textStatBadge，公文纸尾盖章位）。 */
   function paintWax() {
     if (!window.S || !S.draft) return;
     const st = S.draft.status || '';
     const cn = { pass: '通过', reject: '打回', flag: '存疑' }[st] || '';
-    [$q('#statBadge'), $q('#textStatBadge')].forEach((el) => {
+    const isImage = S.set && S.set.type === 'image';
+
+    // 图片态：挂到 stageB（卡片实际显示区），真正盖在卡上
+    let stageWax = $q('#stageWax');
+    if (isImage) {
+      const stageB = $q('#stageB');
+      if (!stageWax && stageB) {
+        stageWax = document.createElement('span');
+        stageWax.id = 'stageWax';
+        stageB.appendChild(stageWax);
+      }
+      // pane-head 里的 statBadge 在图片态下不再承担章（避免两套落点）
+      const headBadge = $q('#statBadge');
+      if (headBadge && headBadge.dataset.st) { headBadge.className = 'meta'; headBadge.innerHTML = ''; delete headBadge.dataset.st; }
+      if (stageWax) {
+        if (!st) {
+          if (stageWax.dataset.st) { stageWax.className = ''; stageWax.textContent = ''; delete stageWax.dataset.st; }
+        } else {
+          const wasSt = stageWax.dataset.st || '';
+          stageWax.className = 'wax oncard ' + st + (wasSt !== st ? ' enter' : '');
+          stageWax.dataset.st = st;
+          stageWax.textContent = cn;
+          stageWax.title = '状态：' + cn;
+          if (wasSt !== st) {
+            // animationend 在 rAF 重绘/跳卡时可能不触发，setTimeout 兜底清 enter
+            const clear = () => stageWax.classList.remove('enter');
+            stageWax.addEventListener('animationend', clear, { once: true });
+            setTimeout(clear, 600);
+          }
+        }
+      }
+      return;
+    }
+    // 非图片态：清掉 stageWax（切集后残留）
+    if (stageWax && stageWax.dataset.st) { stageWax.className = ''; stageWax.textContent = ''; delete stageWax.dataset.st; }
+
+    // 文本/模型态：章在 #textStatBadge（对照区右下）
+    [$q('#textStatBadge')].forEach((el) => {
       if (!el) return;
       if (!st) {
         if (el.dataset.st) { el.className = 'meta'; el.innerHTML = ''; delete el.dataset.st; }
         return;
       }
       const wasSt = el.dataset.st || '';
-      // 章压在 B 卡 pane-head 右端（statBadge 本身就在 B 卡头部 spacer 后）
       el.className = 'meta wax ' + st + (wasSt !== st ? ' enter' : '');
       el.dataset.st = st;
       el.textContent = cn;
       el.title = '状态：' + cn;
       if (wasSt !== st) {
-        el.addEventListener('animationend', () => el.classList.remove('enter'), { once: true });
+        const clear = () => el.classList.remove('enter');
+        el.addEventListener('animationend', clear, { once: true });
+        setTimeout(clear, 600);
       }
     });
   }
@@ -109,11 +149,30 @@
       if (hasContent) {
         entered = true;
         lastCursor = window.S ? S.cursor : 0;  // 标记已进场，避免 cardEnter 重复
+        playOpenBox();   // 首次进场：开盒（评审：F 隐喻的首次进入出场）
         playEnter();
         obs.disconnect();
       }
     });
     targets.forEach((t) => obs.observe(t, { childList: true, subtree: true, attributes: true }));
+  }
+
+  /* ---------------- 开盒入场（首次进入出场 · F 隐喻最后一块） ----------------
+     首次进入时：卡盒底（canvasArea）先定，queueBar 从顶部落下（盒盖掀起），
+     卡片对照区随后浮出（第一张卡抽出）。≤600ms、克制、只放一次。 */
+  function playOpenBox() {
+    const bar = $q('#queueBar');
+    if (bar) {
+      bar.classList.remove('box-lid');
+      void bar.offsetWidth;
+      bar.classList.add('box-lid');
+    }
+    const area = $q('#canvasArea');
+    if (area) {
+      area.classList.remove('box-open');
+      void area.offsetWidth;
+      area.classList.add('box-open');
+    }
   }
 
   /* ---------------- S1 批量条吸附盒底 ----------------

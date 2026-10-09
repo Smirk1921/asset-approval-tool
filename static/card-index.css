@@ -72,7 +72,10 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
 
 /* ---------- 统计条：压扁、档案感 ---------- */
 #statsBar { background: var(--bg-2); border-bottom-color: var(--hairline); font-size: 11.5px; }
-#statsBar .progress-track { background: var(--hairline); height: 4px; }
+/* 进度是审批页最重要的数字（评审 5.2）：轨道加高、数字提墨色，1 米外余光可辨 */
+#statsBar .progress-track { background: var(--hairline); height: 6px; width: 150px; }
+#statsBar #progressText { font-size: 13px; color: var(--ink); }
+#statsBar #progressText b { font-size: 14px; }
 #quickFilters button.on { background: var(--ink); border-color: var(--ink); color: var(--card); }
 
 /* ---------- 单张对照：卡盒骨架 ---------- */
@@ -141,25 +144,80 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
   border: 2px solid currentColor; background: transparent;
   letter-spacing: 0; line-height: 1;
 }
+/* 印章落点：图片态盖在卡上（#stageWax 渲染进 stageB，跟随卡片 transform 贴卡面右下），
+   文本态在对照区右下——两态都是「盖在内容上」，不是「浮在 UI 角落/桌面」。 */
+#stageWax.oncard {
+  position: absolute; right: 4%; bottom: 3%; z-index: 6;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13%; aspect-ratio: 1; min-width: 40px; min-height: 40px; border-radius: 50%;
+  font-family: var(--font-serif); font-weight: 700; font-size: clamp(13px, 1.6vw, 20px);
+  transform: rotate(-7deg); border: 3px solid currentColor; background: rgba(250, 248, 242, .35);
+  letter-spacing: 0; line-height: 1; pointer-events: none;
+  box-shadow: 0 1px 5px rgba(43, 43, 40, .2);
+}
+#stageWax.oncard.pass { color: var(--c-pass); }
+#stageWax.oncard.reject { color: var(--c-reject); }
+#stageWax.oncard.flag { color: var(--c-flag); }
+#stageWax.oncard.enter { animation: wax-in .5s cubic-bezier(.25, 1.1, .35, 1) both; }
+#textWrap { position: relative; }
+#textStatBadge.wax {
+  position: absolute; right: 18px; bottom: 14px; z-index: 4;
+  box-shadow: 0 1px 4px rgba(43, 43, 40, .15);
+}
 #statBadge.wax.pass, #textStatBadge.wax.pass { color: var(--c-pass); }
 #statBadge.wax.reject, #textStatBadge.wax.reject { color: var(--c-reject); }
 #statBadge.wax.flag, #textStatBadge.wax.flag { color: var(--c-flag); }
+/* 落章：落下 → 压扁（接触纸面·章略压扁+印泥色加深，像真盖下去）→ 回弹定型。
+   R3 共识：缺「压下」接触帧，手感停在「贴上」不是「盖上」。 */
 @keyframes wax-in {
   0% { transform: rotate(-12deg) scale(1.12) translateY(-14px); opacity: 0; }
-  100% { transform: rotate(7deg) scale(1) translateY(0); opacity: 1; }
+  55% { transform: rotate(2deg) scale(1.02) translateY(0); opacity: 1; }
+  72% { transform: rotate(0deg) scale(1.06, .9) translateY(1px); opacity: 1; filter: brightness(.92); }
+  100% { transform: rotate(7deg) scale(1) translateY(0); opacity: 1; filter: brightness(1); }
 }
-#statBadge.wax.enter, #textStatBadge.wax.enter { animation: wax-in .45s cubic-bezier(.25, 1.1, .35, 1) both; }
+#statBadge.wax.enter, #textStatBadge.wax.enter { animation: wax-in .5s cubic-bezier(.25, 1.1, .35, 1) both; }
 
 /* ---------- 换卡浮出（两拍换卡第二拍 · F 抽卡语言） ----------
    翻卡/点 queueBar tab 时，两栏分别淡入 + 微升 12px，0.28s 缓和 ease-out；
    右栏慢 60ms（左栏先、右栏后），强化「抽出一张新卡放进卡盒」的次序感。
    纸感克制：不用弹性，避免和落章的 wax-in 抢戏。 */
-@keyframes card-enter {
-  0% { opacity: 0; transform: translateY(12px); }
-  100% { opacity: 1; transform: translateY(0); }
+/* ---------- 换卡浮出（两拍换卡第二拍 · F 抽卡语言） ----------
+   卡片从卡盒抽出：上抬 20px + 微旋转，有位移轨迹可寻（评审共识：换卡要空间感）；
+   右栏慢 70ms（左栏先、右栏后），强化「先后抽出两张」的次序。 */
+@keyframes card-enter-a {
+  0% { opacity: 0; transform: translateY(20px) rotate(-.7deg); }
+  100% { opacity: 1; transform: translateY(0) rotate(0); }
 }
-.card-enter-a { animation: card-enter .28s cubic-bezier(.22, .61, .36, 1) both; }
-.card-enter-b { animation: card-enter .28s cubic-bezier(.22, .61, .36, 1) .06s both; }
+@keyframes card-enter-b {
+  0% { opacity: 0; transform: translateY(20px) rotate(.7deg); }
+  100% { opacity: 1; transform: translateY(0) rotate(0); }
+}
+.card-enter-a { animation: card-enter-a .32s cubic-bezier(.22, .61, .36, 1) both; }
+.card-enter-b { animation: card-enter-b .32s cubic-bezier(.22, .61, .36, 1) .07s both; }
+
+/* ---------- 开盒入场（首次进入出场 · ≤700ms 只放一次） ----------
+   queueBar = 盒盖：以底边为轴向前掀起（rotateX 角度 + 投影由压到抬），有真「掀盖」重量感；
+   对照区第一张卡从盒中升起（上抬 + 投影由深到浅，阻尼感）。 */
+@keyframes box-lid {
+  0% { opacity: 0; transform: perspective(900px) rotateX(28deg) translateY(-6px);
+       transform-origin: bottom center; box-shadow: 0 14px 28px rgba(43,43,40,.32); }
+  60% { opacity: 1; transform: perspective(900px) rotateX(-4deg) translateY(0);
+        box-shadow: 0 4px 10px rgba(43,43,40,.18); }
+  100% { opacity: 1; transform: perspective(900px) rotateX(0) translateY(0);
+         box-shadow: 0 1px 3px rgba(43,43,40,.08); }
+}
+#queueBar.box-lid { animation: box-lid .4s cubic-bezier(.3, 1.15, .4, 1) both; }
+@keyframes box-open {
+  0% { opacity: 0; transform: translateY(30px);
+       box-shadow: 0 6px 12px rgba(43,43,40,.08); }
+  55% { opacity: 1; box-shadow: 0 20px 40px rgba(43,43,40,.26); }
+  100% { opacity: 1; transform: translateY(0);
+         box-shadow: 0 2px 6px rgba(43,43,40,.1); }
+}
+#canvasArea.box-open { animation: box-open .6s cubic-bezier(.22, .9, .32, 1) .16s both; }
+@media (prefers-reduced-motion: reduce) {
+  #queueBar.box-lid, #canvasArea.box-open { animation: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .card-enter-a, .card-enter-b,
   #statBadge.wax.enter, #textStatBadge.wax.enter { animation: none; }
@@ -301,9 +359,11 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
   content: ''; position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px;
   border-radius: 2px; background: transparent;
 }
-#queueBar .qtab.st-pass::after { background: var(--c-pass); }
-#queueBar .qtab.st-reject::after { background: var(--c-reject); }
-#queueBar .qtab.st-flag::after { background: var(--c-flag); }
+/* queueBar 状态条是该卡审批状态的功能编码（保留），但降饱和度（R3 共识·红色预算）：
+   满饱和印章红只留给判定动作与印章，状态条退到 55% 透明的"标记"层级。 */
+#queueBar .qtab.st-pass::after { background: var(--c-pass); opacity: .55; }
+#queueBar .qtab.st-reject::after { background: var(--c-reject); opacity: .55; }
+#queueBar .qtab.st-flag::after { background: var(--c-flag); opacity: .55; }
 #queueBar .qtab.cur {
   background: var(--card); color: var(--ink); font-weight: 700;
   padding: 7px 12px 10px; margin-bottom: -1px; margin-top: -6px; z-index: 2;
@@ -312,9 +372,22 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
 #queueBar .qtab.cur::after { background: var(--ink-2); }
 #queueBar .qtab:hover:not(.cur) { color: var(--ink); }
 
+/* ---------- 标签分组（评审共识：分组要"可感知"——组名 + 大间距断点，R2 3/3） ---------- */
+#tagChips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+#tagChips .tag-group { display: inline-flex; gap: 6px; align-items: center; }
+#tagChips .tag-group-name {
+  font: 400 10px/1 var(--font-mono); color: var(--ink-2); letter-spacing: 1px;
+  margin-right: 2px; user-select: none;
+}
+#tagChips .tag-sep { width: 1px; height: 18px; background: var(--ink-2); opacity: .4; margin: 0 14px; }
+
 /* ---------- 文本态：行级对照（P0 · T1/T2/T3） ---------- */
 /* T3 行级同步：等行高 + 基线对齐 + 隔行 2% 明度交替（取代旧横线稿纸） */
 .text-body { padding: 10px 0; line-height: 1.75; font-size: 13.5px; }
+
+/* 文本态密度：短内容顶部对齐（撤销垂直居中——它让左右栏行号错位，破坏同行对照，
+   R2 三评审 3/3 共识点名）。「空洞感」由缺行虚线已给出「此处缺内容」信号来缓解，
+   顶部对齐 + 缺行紧跟上一行，正是 MemoQ 的做法。 */
 .ln-row {
   display: flex; align-items: baseline; gap: 10px;
   padding: 2px 14px 2px 8px; min-height: 27px;
@@ -340,15 +413,25 @@ header .brand { font-weight: 700; letter-spacing: .03em; }
 .ln-row .ln:hover { color: var(--ink); text-decoration: underline dotted; }
 .ln-row.sev-term .ln { color: var(--annot-ink); }
 .ln-row.sev-miss .ln { color: var(--c-reject); font-weight: 700; }
+/* 补空行（diff blank line marker）：浅虚线暗示「此处应有内容，缺」，
+   颜色比正文墨浅 2 级以上，不能被误认为下划线。 */
+.ln-row.pad .lt { position: relative; }
+.ln-row.pad .lt::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%;
+  border-top: 1px dashed rgba(138, 135, 126, .35);
+}
+:root[data-theme="dark"] .ln-row.pad .lt::after { border-top-color: rgba(220, 215, 205, .18); }
 .ln-row .lt { flex: 1 1 auto; min-width: 0; }
 
 /* T2 问题行标记：漏译 = 行末次级 chip（浅红底+红字+1px 描边，权重让位错文本身）；
    术语错 = 词上 wavy 1.5px 下划线 + 12% 词背景（深色降饱和） */
+/* 漏译 chip 紧跟文本/虚线（评审共识：chip 贴右缘与内容脱节）。
+   .lt flex:1 会把 chip 顶到右缘，所以漏译 chip 放进 .lt 内部左对齐。 */
 .ln-row .lmiss {
-  flex: 0 0 auto; align-self: center; margin-left: 6px;
+  flex: 0 0 auto; align-self: center; margin-left: 8px;
   font: 700 10px/1 var(--font-mono); letter-spacing: .5px; color: var(--c-reject);
   background: rgba(166, 58, 40, .08); border: 1px solid rgba(166, 58, 40, .45);
-  padding: 3px 6px; border-radius: 2px;
+  padding: 3px 6px; border-radius: 2px; vertical-align: middle;
 }
 :root[data-theme="dark"] .ln-row .lmiss {
   color: #d68a7a; background: rgba(214, 108, 90, .10); border-color: rgba(214, 108, 90, .5);
